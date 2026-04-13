@@ -171,9 +171,22 @@ The `vars` argument can be either:
 
 `auxVars` is a `Map` of local variables that don't modify the loom's default resolver — useful for scoped overrides.
 
+## Documentation
+
+Full docs live in [`docs/`](./docs/):
+
+- **[Basics](./docs/basics.md)** — Start here. Placeholders, variables, functions, the main idioms.
+- **[Quick guide](./docs/quick-guide.md)** — 10-minute tour of the most-used features.
+- **[Language reference](./docs/language.md)** — Complete reference: every function, every flag, every syntactic form.
+- **[Examples](./docs/examples.md)** — Worked examples organized by task.
+- **[AI prompt](./docs/ai-prompt.md)** — Paste into ChatGPT/Claude to generate Loom expressions from plain English.
+- **[History](./docs/history.md)** — The story of where Loom came from.
+
 ## Status
 
 **Pre-1.0.** Core API (`render`, `evaluateText`, snippets, custom functions) is stable. The standard library is ported largely unchanged from an internal "unilang" mini-language that has been in production use for academic reporting since around 2018. 42 tests cover variables, math, conditionals, joins, sorting, formatting, logical operations, snippets, and report-style templates.
+
+A natural-language layer called **PlainScript** — an English-like syntax that compiles to Loom's Polish notation — is designed but not yet implemented. It's tracked as a separate effort.
 
 ## See also
 
