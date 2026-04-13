@@ -1,0 +1,38 @@
+{
+    "name": "@uniweb/loom",
+    "version": "0.1.0",
+    "description": "A small expression language for weaving data into text — variables, functions, filters, sorting, formatting. Polish-notation syntax.",
+    "type": "module",
+    "exports": {
+        ".": "./src/index.js"
+    },
+    "files": [
+        "src"
+    ],
+    "keywords": [
+        "uniweb",
+        "loom",
+        "template",
+        "expression",
+        "placeholder",
+        "polish-notation",
+        "data-transform"
+    ],
+    "author": "Proximify",
+    "license": "Apache-2.0",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/uniweb/loom.git"
+    },
+    "homepage": "https://github.com/uniweb/loom#readme",
+    "engines": {
+        "node": ">=20.19"
+    },
+    "scripts": {
+        "test": "vitest run",
+        "test:watch": "vitest"
+    },
+    "devDependencies": {
+        "vitest": "^2.0.0"
+    }
+}
