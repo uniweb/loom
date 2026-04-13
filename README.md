@@ -186,7 +186,7 @@ Full docs live in [`docs/`](./docs/):
 
 **Pre-1.0.** Core API (`render`, `evaluateText`, snippets, custom functions) is stable. The standard library is ported largely unchanged from an internal "unilang" mini-language that has been in production use for academic reporting since around 2018. 42 tests cover variables, math, conditionals, joins, sorting, formatting, logical operations, snippets, and report-style templates.
 
-A natural-language layer called **PlainScript** — an English-like syntax that compiles to Loom's Polish notation — is designed but not yet implemented. It's tracked as a separate effort.
+A natural-language layer called **Plain** — an English-like syntax that compiles to Loom's Polish notation, for authors who'd rather write `{SHOW publications.title SORTED BY date}` than learn the symbolic form — is designed but not yet implemented. It will ship as a separate subpath export at `@uniweb/loom/plain`.
 
 ## See also
 
