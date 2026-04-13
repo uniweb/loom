@@ -8,6 +8,7 @@ This directory contains the full documentation for `@uniweb/loom`.
 - **[quick-guide.md](./quick-guide.md)** — A 10-minute tour of the most-used features. Read after basics.md.
 - **[language.md](./language.md)** — The complete reference: every function, every flag, every syntactic form.
 - **[examples.md](./examples.md)** — Worked examples organized by task. All examples are tested and come from the project's test suite.
+- **[plain.md](./plain.md)** — Plain, the natural-language layer that compiles to Loom. Read this if you (or your users) would rather write `{SHOW publications.title SORTED BY date}` than learn the symbolic form.
 - **[ai-prompt.md](./ai-prompt.md)** — A self-contained prompt you can paste into ChatGPT, Claude, or any LLM to get help generating Loom expressions from plain-English requirements.
 - **[history.md](./history.md)** — How Loom came to be and what changed during the extraction from its original home.
 

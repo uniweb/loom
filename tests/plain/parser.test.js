@@ -1,0 +1,152 @@
+import { describe, it, expect } from 'vitest'
+import { tokenize } from '../../src/plain/tokenizer.js'
+import { parse } from '../../src/plain/parser.js'
+
+const P = (src) => parse(tokenize(src))
+
+describe('plain parser — show', () => {
+    it('parses bare value as implicit show', () => {
+        const ast = P('publication.title')
+        expect(ast).toEqual({
+            type: 'show',
+            value: { type: 'var', path: 'publication.title' },
+            modifiers: [],
+        })
+    })
+
+    it('parses explicit SHOW', () => {
+        const ast = P('SHOW publication.title')
+        expect(ast.type).toBe('show')
+        expect(ast.value.path).toBe('publication.title')
+        expect(ast.modifiers).toEqual([])
+    })
+
+    it('parses SHOW with AS modifier (bare word)', () => {
+        const ast = P('SHOW publication.date AS long date')
+        expect(ast.modifiers).toEqual([
+            { type: 'as', format: { type: 'date', value: 'long' } },
+        ])
+    })
+
+    it('parses AS currency USD', () => {
+        const ast = P('SHOW price AS currency USD')
+        expect(ast.modifiers[0].format).toEqual({ type: 'currency', value: 'usd' })
+    })
+
+    it('parses AS with just a type', () => {
+        const ast = P('SHOW x AS phone')
+        expect(ast.modifiers[0].format).toEqual({ type: 'phone', value: null })
+    })
+
+    it('parses WITH LABEL alone', () => {
+        const ast = P('SHOW price WITH LABEL')
+        expect(ast.modifiers).toEqual([{ type: 'withLabel', label: null }])
+    })
+
+    it('parses WITH LABEL "custom"', () => {
+        const ast = P('SHOW price WITH LABEL "Cost"')
+        expect(ast.modifiers[0]).toEqual({ type: 'withLabel', label: 'Cost' })
+    })
+
+    it('parses SORTED BY ... DESCENDING', () => {
+        const ast = P('SHOW publications.title SORTED BY publications.date DESCENDING')
+        expect(ast.modifiers[0]).toMatchObject({
+            type: 'sortedBy',
+            order: 'desc',
+        })
+        expect(ast.modifiers[0].value.path).toBe('publications.date')
+    })
+
+    it('parses FROM LOWEST TO HIGHEST as ascending sort', () => {
+        const ast = P('SHOW publications.title FROM LOWEST TO HIGHEST date')
+        expect(ast.modifiers[0]).toMatchObject({ type: 'sortedBy', order: 'asc' })
+    })
+
+    it('parses FROM HIGHEST TO LOWEST as descending sort', () => {
+        const ast = P('SHOW publications.title FROM HIGHEST TO LOWEST date')
+        expect(ast.modifiers[0]).toMatchObject({ type: 'sortedBy', order: 'desc' })
+    })
+
+    it('parses JOINED BY', () => {
+        const ast = P('SHOW publications.title JOINED BY ", "')
+        expect(ast.modifiers[0]).toEqual({ type: 'joinedBy', sep: ', ' })
+    })
+
+    it('parses WHERE with compound condition', () => {
+        const ast = P('SHOW publications.title WHERE refereed AND year > 2020')
+        expect(ast.modifiers[0].type).toBe('where')
+        expect(ast.modifiers[0].condition.op).toBe('&')
+    })
+
+    it('parses trailing IF as a where modifier', () => {
+        const ast = P('SHOW publications.title IF published')
+        expect(ast.modifiers[0].type).toBe('where')
+    })
+
+    it('accepts modifiers in any order', () => {
+        const ast = P(
+            'SHOW publications.title WHERE refereed SORTED BY date DESCENDING JOINED BY ", "'
+        )
+        expect(ast.modifiers.map((m) => m.type)).toEqual(['where', 'sortedBy', 'joinedBy'])
+    })
+})
+
+describe('plain parser — if', () => {
+    it('parses IF ... SHOW ... OTHERWISE SHOW ...', () => {
+        const ast = P('IF age >= 18 SHOW "Adult" OTHERWISE SHOW "Minor"')
+        expect(ast.type).toBe('if')
+        expect(ast.condition.op).toBe('>=')
+        expect(ast.thenBranch).toEqual({ type: 'string', value: 'Adult' })
+        expect(ast.elseBranch).toEqual({ type: 'string', value: 'Minor' })
+    })
+
+    it('parses IF ... THEN ... ELSE ...', () => {
+        const ast = P('IF age >= 18 THEN "Adult" ELSE "Minor"')
+        expect(ast.type).toBe('if')
+        expect(ast.thenBranch.value).toBe('Adult')
+        expect(ast.elseBranch.value).toBe('Minor')
+    })
+
+    it('makes SHOW after OTHERWISE optional', () => {
+        const ast = P('IF x SHOW "a" OTHERWISE "b"')
+        expect(ast.elseBranch.value).toBe('b')
+    })
+})
+
+describe('plain parser — aggregation', () => {
+    it('parses TOTAL OF', () => {
+        const ast = P('TOTAL OF grants.amount')
+        expect(ast.type).toBe('sum')
+        expect(ast.value.path).toBe('grants.amount')
+    })
+
+    it('parses SUM OF as sum', () => {
+        const ast = P('SUM OF grants.amount')
+        expect(ast.type).toBe('sum')
+    })
+
+    it('parses AVERAGE OF', () => {
+        const ast = P('AVERAGE OF grants.amount')
+        expect(ast.type).toBe('average')
+    })
+
+    it('parses COUNT OF', () => {
+        const ast = P('COUNT OF publications')
+        expect(ast.type).toBe('count')
+        expect(ast.where).toBe(null)
+    })
+
+    it('parses COUNT OF ... WHERE ...', () => {
+        const ast = P('COUNT OF publications WHERE refereed')
+        expect(ast.type).toBe('count')
+        expect(ast.where).toEqual({ type: 'var', path: 'refereed' })
+    })
+})
+
+describe('plain parser — loom passthrough', () => {
+    it('preserves raw loom expressions', () => {
+        const ast = P('{+ 1 2}')
+        expect(ast.type).toBe('show')
+        expect(ast.value).toEqual({ type: 'loom', value: '{+ 1 2}' })
+    })
+})

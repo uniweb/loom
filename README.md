@@ -171,6 +171,24 @@ The `vars` argument can be either:
 
 `auxVars` is a `Map` of local variables that don't modify the loom's default resolver — useful for scoped overrides.
 
+## Plain — the natural-language layer
+
+For authors who'd rather write English-like phrases than memorize Polish notation, Loom ships a companion surface syntax called **Plain**. Plain compiles to Loom at parse time, runs on the same evaluator, and is a strict superset — any Loom expression is valid Plain, and the two can be mixed freely in the same template.
+
+```js
+import { Plain } from '@uniweb/loom/plain'
+
+const plain = new Plain()
+plain.render(
+    '{SHOW publications.title WHERE refereed SORTED BY date DESCENDING JOINED BY ", "}',
+    vars
+)
+```
+
+Plain lives at a separate subpath export (`@uniweb/loom/plain`) so templates that don't need it don't load the parser. The constructor, variable model, and snippet system are identical to `Loom`.
+
+See the [Plain tutorial and reference](./docs/plain.md) for the full language.
+
 ## Documentation
 
 Full docs live in [`docs/`](./docs/):
@@ -179,14 +197,13 @@ Full docs live in [`docs/`](./docs/):
 - **[Quick guide](./docs/quick-guide.md)** — 10-minute tour of the most-used features.
 - **[Language reference](./docs/language.md)** — Complete reference: every function, every flag, every syntactic form.
 - **[Examples](./docs/examples.md)** — Worked examples organized by task.
+- **[Plain](./docs/plain.md)** — The natural-language layer that compiles to Loom.
 - **[AI prompt](./docs/ai-prompt.md)** — Paste into ChatGPT/Claude to generate Loom expressions from plain English.
 - **[History](./docs/history.md)** — The story of where Loom came from.
 
 ## Status
 
-**Pre-1.0.** Core API (`render`, `evaluateText`, snippets, custom functions) is stable. The standard library is ported largely unchanged from an internal "unilang" mini-language that has been in production use for academic reporting since around 2018. 42 tests cover variables, math, conditionals, joins, sorting, formatting, logical operations, snippets, and report-style templates.
-
-A natural-language layer called **Plain** — an English-like syntax that compiles to Loom's Polish notation, for authors who'd rather write `{SHOW publications.title SORTED BY date}` than learn the symbolic form — is designed but not yet implemented. It will ship as a separate subpath export at `@uniweb/loom/plain`.
+**Pre-1.0.** Core API (`render`, `evaluateText`, snippets, custom functions) is stable. The standard library is ported largely unchanged from an internal "unilang" mini-language that has been in production use for academic reporting since around 2018. 128 tests cover the core engine plus the Plain surface syntax — variables, math, conditionals, joins, sorting, formatting, logical operations, snippets, report-style templates, and the full Plain translation table.
 
 ## See also
 

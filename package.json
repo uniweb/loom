@@ -4,7 +4,8 @@
     "description": "A small expression language for weaving data into text — variables, functions, filters, sorting, formatting. Polish-notation syntax.",
     "type": "module",
     "exports": {
-        ".": "./src/index.js"
+        ".": "./src/index.js",
+        "./plain": "./src/plain/index.js"
     },
     "files": [
         "src",
