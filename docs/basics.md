@@ -220,9 +220,36 @@ Education: PhD, University of Toronto
 
 And if `phone` and `faculty_department` were missing, those lines would render as empty strings — the conditional join `+?` drops the whole expression when any referenced value is empty. No broken sentences, no dangling prefixes.
 
+## Snippets
+
+When you find yourself writing the same pattern in several places, extract it into a **snippet**. Snippets are user-defined shortcuts you pass to the `Loom` constructor; once defined, they behave like any other function.
+
+Define them in plain text as `[name args...] { body }` for text templates or `[name args...] ( body )` for expression bodies:
+
+```js
+const loom = new Loom(`
+    [greet name] { Hello, {name}! }
+    [triple n] (* n 3)
+`)
+
+loom.render('{greet "Diego"}', () => undefined)
+// → "Hello, Diego!"
+
+loom.evaluateText('triple 7', () => undefined)
+// → 21
+```
+
+The two body forms are deliberately different:
+
+- **`{ body }`** — a text template. The body may contain its own `{…}` placeholders and is evaluated with `render()`, returning a string.
+- **`( body )`** — a single expression. Evaluated with `evaluateText()` and returns whatever type the expression produces — number, boolean, array, anything.
+
+Snippets can call other snippets, reference outer resolver variables, accept variadic `...args`, and opt into receiving the flag bag via a special `$0` parameter. For the full reference — including the `$0` form and the programmatic object-shape constructor argument — see [`language.md`](./language.md#snippets).
+
 ## Next steps
 
 - **[Quick guide](./quick-guide.md)** — a 10-minute tour of the most-used features, with more examples
 - **[Language reference](./language.md)** — the complete reference: all functions, all flags, all syntactic forms
 - **[Examples](./examples.md)** — worked examples organized by task
+- **[Plain](./plain.md)** — a natural-language layer that compiles to Loom, for authors who'd rather write `{SHOW publications.title SORTED BY date}` than learn the symbolic form
 - **[AI prompt](./ai-prompt.md)** — a concise language summary you can paste into an LLM chat when you want help generating Loom expressions

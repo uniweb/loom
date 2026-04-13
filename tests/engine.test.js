@@ -263,6 +263,80 @@ describe('snippets', () => {
         const result = engine.render('{fullname "Diego" "Macrini"}', () => undefined)
         expect(result.trim()).toBe('Diego Macrini')
     })
+
+    it('no-argument snippet renders constant text', () => {
+        const engine = new Loom('[motto] { Per aspera ad astra. }')
+        const result = engine.render('{motto}', () => undefined)
+        expect(result.trim()).toBe('Per aspera ad astra.')
+    })
+
+    it('expression-body snippet evaluates with (...)', () => {
+        // `[name ...] ( expr )` — body is a single expression, not a text
+        // template. Evaluated via evaluateText and returns a typed value.
+        const engine = new Loom('[triple n] (* n 3)')
+        const none = () => undefined
+        expect(engine.evaluateText('triple 7', none)).toBe(21)
+        expect(engine.evaluateText('triple 0', none)).toBe(0)
+    })
+
+    it('variadic ...args captures remaining arguments as a list', () => {
+        const engine = new Loom('[joinAll ...items] (+: ", " items)')
+        const none = () => undefined
+        expect(engine.evaluateText('joinAll "a" "b" "c"', none)).toBe('a, b, c')
+        expect(engine.evaluateText('joinAll "solo"', none)).toBe('solo')
+    })
+
+    it('snippet calling another snippet composes correctly', () => {
+        const engine = new Loom(`
+            [double n] (* n 2)
+            [quadruple n] (double (double n))
+        `)
+        expect(engine.evaluateText('quadruple 5', () => undefined)).toBe(20)
+    })
+
+    it('snippet body can reference outer resolver variables', () => {
+        // Args take precedence but undefined args fall through to the outer
+        // resolver, so snippets can pull in ambient context.
+        const engine = new Loom('[greet name] { Hello, {name}, from {city}! }')
+        const vars = { city: 'Fredericton' }
+        const result = engine.render('{greet "Diego"}', (k) => vars[k])
+        expect(result.trim()).toBe('Hello, Diego, from Fredericton!')
+    })
+
+    it('$0 parameter receives the flags object', () => {
+        // `$0` as the first parameter opts the snippet into receiving the
+        // flag bag. It cannot appear alone in a placeholder — the language
+        // reference notes you must use it inside a function call like
+        // `(# -json $0)`.
+        const engine = new Loom(
+            '[fancy $0 title] { Title: {title} Flags: {# -json $0} }'
+        )
+        const result = engine.render(
+            '{fancy -x -y=test "Hello"}',
+            () => undefined
+        )
+        expect(result).toContain('Title: Hello')
+        expect(result).toContain('"x":true')
+        expect(result).toContain('"y":"test"')
+    })
+
+    it('accepts a pre-parsed snippets object in the constructor', () => {
+        // Alternative to the string form: hand the constructor an object
+        // whose keys are snippet names and whose values are the parsed
+        // shape (args, body, isText, hasFlags). Useful when the snippet
+        // library is generated programmatically rather than authored as
+        // source text.
+        const engine = new Loom({
+            greet: {
+                args: ['name'],
+                body: 'Hello, {name}!',
+                isText: true,
+                hasFlags: false,
+            },
+        })
+        const result = engine.render('{greet "Diego"}', () => undefined)
+        expect(result.trim()).toBe('Hello, Diego!')
+    })
 })
 
 // ============================================================================
