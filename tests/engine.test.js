@@ -279,10 +279,21 @@ describe('collectors', () => {
     })
 
     it('count non-empty items', () => {
-        // ++!! accumulates: starts with first arg, adds 1 for each non-empty subsequent arg
-        // With numeric start: 0 + 1 (for "a") + 0 (for "") + 1 (for "c") = 2
+        // ++!! starts with an implicit 0 accumulator and adds 1 for every
+        // non-empty argument. The leading 0 here is also counted (as empty,
+        // so skipped), giving the same result.
         const result = evaluate('++!! 0 "a" "" "c"')
         expect(result).toBe(2)
+    })
+
+    it('count items in a list of objects', () => {
+        const vars = { items: [{ a: 1 }, { a: 2 }, { a: 3 }] }
+        expect(evaluate('++!! items', vars)).toBe(3)
+    })
+
+    it('count items in a list of numbers', () => {
+        const vars = { nums: [100, 200, 300] }
+        expect(evaluate('++!! nums', vars)).toBe(3)
     })
 })
 

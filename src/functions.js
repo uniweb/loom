@@ -582,7 +582,13 @@ function createEmail(flags, args) {
 function applyCollector(fn, flags, args) {
     const list = flatten(args);
 
-    return list.length ? list.reduce(fn) : '';
+    if (!list.length) return '';
+
+    // Some reducers (like countItems) need a numeric starting accumulator
+    // — without one, `reduce` takes the first list element as the initial
+    // value, which miscounts lists of objects, strings, or non-zero numbers.
+    // Reducers that need this declare it via an `init` property.
+    return fn.init !== undefined ? list.reduce(fn, fn.init) : list.reduce(fn);
 }
 
 function subtract(a, b) {
@@ -694,6 +700,7 @@ function joinIfAllTrue(args) {
 function countItems(a, b) {
     return isEmpty(b) ? a : a + 1;
 }
+countItems.init = 0;
 
 /**
  * Flattens a given value recursively. If the value is an array, it flattens all nested arrays. If the value is an
