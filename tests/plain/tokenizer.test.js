@@ -17,6 +17,35 @@ function values(tokens) {
 // parser calls at each grammar position.
 // -----------------------------------------------------------------------------
 
+// Regression: the tokenizer used to silently drop unrecognized
+// characters, which corrupted any Compact-form expression that used
+// Loom operators not in Plain's operator set (`#`, `~`, `@`, `^`, `\`,
+// `<`, `>` when not preceded by a value, etc.) at a top level outside
+// a `{…}` passthrough. Emitting an `unknown` token causes the parser
+// to reject, which triggers `Loom.translateExpression`'s catch-block
+// fallthrough — handing the original text to LoomCore instead.
+describe('plain tokenizer — unknown characters', () => {
+    it('emits unknown token for # at the start of an expression', () => {
+        const t = tokenize('# -date=long start_date')
+        const first = t[0]
+        expect(first.type).toBe('unknown')
+        expect(first.value).toBe('#')
+    })
+
+    it('emits unknown token for ~ (range creator)', () => {
+        const t = tokenize('(~ a b)')
+        // '(' → lparen, '~' → unknown, 'a' → word, 'b' → word, ')' → rparen
+        expect(types(t)).toEqual(['lparen', 'unknown', 'word', 'word', 'rparen'])
+        expect(t[1].value).toBe('~')
+    })
+
+    it('emits unknown token for ^ (matrix creator)', () => {
+        const t = tokenize('(^ a b)')
+        expect(t[1].type).toBe('unknown')
+        expect(t[1].value).toBe('^')
+    })
+})
+
 describe('plain tokenizer — words', () => {
     it('emits raw words for identifier-like tokens', () => {
         const t = tokenize('publications.title')

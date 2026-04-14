@@ -90,7 +90,10 @@ const FUNCTIONS = {
     formatter: {
         '': { handler: applyFormatter, minArgs: 1, spread: false }, // handler
         '#': formatValue,
-        '!': logicalNot,
+    },
+    unary: {
+        '': { handler: applyUnary, minArgs: 1, spread: false }, // handler
+        '!': logicalNot, // list-aware; use -l to treat list as one value
         '!!': logicalNotNot, // same as (! (! val))
     },
     joiner: {
@@ -834,6 +837,43 @@ function applyFormatter(fn, flags, args) {
 
     const matrix = createMatrix({}, args);
     return matrix.map((item) => formatItem(item));
+}
+
+/**
+ * Calls unary functions (single-argument operators like `!` / `!!`) with
+ * list-aware stepping: when the single argument is a list, the function
+ * is applied element-by-element and the results are collected back into
+ * a list. A scalar argument goes through as-is. The `-l` flag opts out
+ * and hands the whole value to the underlying function, giving users a
+ * uniform way to say "treat this list as one value."
+ *
+ * Flags are cloned per invocation so any cached state in the function
+ * body (e.g. `flags.type ??= inferType(...)` in `formatValue`) can't
+ * leak between elements. This matches the per-iteration flag hygiene
+ * that `applyFormatter` learned in the April 2026 fix.
+ *
+ * Unary operators previously lived under the `formatter` category, where
+ * the single-arg short-circuit in `applyFormatter` made them silently
+ * scalar. Moving them to their own category restores the original
+ * unilang list-aware behavior without touching `#` / `formatValue`.
+ *
+ * MARK: Unary
+ * @param {function} fn - The function to call.
+ * @param {Object} flags - Parsed option flags.
+ * @param {Array} args - The arguments (always length 1 for unary ops).
+ * @returns {*} Either a single value or a list of values, matching the
+ *              shape of the input.
+ */
+function applyUnary(fn, flags, args) {
+    const value = args[0];
+
+    if (flags.l) return fn({ ...flags }, value);
+
+    if (Array.isArray(value)) {
+        return value.map((item) => fn({ ...flags }, item));
+    }
+
+    return fn({ ...flags }, value);
 }
 
 /**
@@ -1696,7 +1736,11 @@ function formatList(flags, list) {
             item = formatObject(flags, item);
         }
 
-        if (item) result.push(item);
+        // Structural emptiness, not JS truthiness: 0, "0", false are
+        // legitimate values in a text context and should join normally.
+        // See docs/plan-plain-as-default.md section 1 — this is the same
+        // isEmpty-vs-isFalsy distinction that the join functions use.
+        if (!isEmpty(item)) result.push(item);
     }
 
     return result.join(flags.sep === undefined ? ' ' : flags.sep);

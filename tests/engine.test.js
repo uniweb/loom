@@ -261,35 +261,159 @@ describe('logical', () => {
         expect(evaluate('> 3 5')).toBe(false)
     })
 
-    // Loom-style truthiness: empty collections are falsy (Python-style),
-    // unlike JavaScript where `![]` is false. The `!`, `!!`, `&`, `|`,
-    // `?`, and `++!!` operators all use the broader `isFalsy` check.
-    it('logical NOT treats empty array as falsy', () => {
-        expect(evaluate('! xs', { xs: [] })).toBe(true)
-        expect(evaluate('! xs', { xs: [1] })).toBe(false)
+    // Loom-style truthiness: scalar values use the broader `isFalsy`
+    // check (empty collections, "", 0, "0", false, null, undefined, NaN
+    // are all falsy). `!`, `!!`, `&`, `|`, `?`, `??`, `???`, and `++!!`
+    // all consult this.
+    it('logical NOT on scalars uses isFalsy', () => {
+        expect(evaluate('! x', { x: 0 })).toBe(true)
+        expect(evaluate('! x', { x: '' })).toBe(true)
+        expect(evaluate('! x', { x: '0' })).toBe(true)
+        expect(evaluate('! x', { x: null })).toBe(true)
+        expect(evaluate('! x', { x: undefined })).toBe(true)
+        expect(evaluate('! x', { x: false })).toBe(true)
+        expect(evaluate('! x', { x: true })).toBe(false)
+        expect(evaluate('! x', { x: 1 })).toBe(false)
+        expect(evaluate('! x', { x: 'anything' })).toBe(false)
     })
 
-    it('logical NOT treats empty object as falsy', () => {
+    // List-awareness: `!` and `!!` step into list arguments and operate
+    // element-by-element, the same way mapper operators like `=`, `>`,
+    // `<`, `!=` do. Use the `-l` flag to opt out and treat the whole
+    // list as one value.
+    it('logical NOT steps into list arguments', () => {
+        expect(evaluate('! xs', { xs: [] })).toEqual([])
+        expect(evaluate('! xs', { xs: [1] })).toEqual([false])
+        expect(evaluate('! xs', { xs: [true, false, true] })).toEqual([false, true, false])
+    })
+
+    it('logical NOT on mixed database-shape values operates per element', () => {
+        // Typical shape of a boolean-ish column from a database: the
+        // field may be a real boolean, 0/1, "Y"/"N", null, or missing.
+        // Per-element `isFalsy` is the only semantics that makes
+        // `WHERE NOT draft`-style filtering work across these shapes.
+        expect(
+            evaluate('! xs', {
+                xs: [true, false, 0, 1, 'Y', '', null, undefined],
+            }),
+        ).toEqual([false, true, true, false, false, true, true, true])
+    })
+
+    it('logical NOT with -l flag treats whole list as one value', () => {
+        expect(evaluate('! -l xs', { xs: [] })).toBe(true)
+        expect(evaluate('! -l xs', { xs: [1] })).toBe(false)
+        expect(evaluate('! -l xs', { xs: [true, false] })).toBe(false)
+    })
+
+    it('logical NOT treats empty/non-empty object as falsy/truthy per element', () => {
         expect(evaluate('! o', { o: {} })).toBe(true)
         expect(evaluate('! o', { o: { a: 1 } })).toBe(false)
     })
 
-    it('logical NOT treats zero and empty string as falsy', () => {
-        expect(evaluate('! x', { x: 0 })).toBe(true)
-        expect(evaluate('! x', { x: '' })).toBe(true)
-        expect(evaluate('! x', { x: '0' })).toBe(true)
+    it('logical NOT on nested lists negates each sublist as a whole', () => {
+        // A list of lists: each sublist is a single value to `!`, so the
+        // result depends on per-sublist isFalsy. Empty sublist → falsy
+        // → `!` = true. Non-empty sublist → truthy → `!` = false.
+        expect(evaluate('! xs', { xs: [[1], []] })).toEqual([false, true])
+        expect(evaluate('! xs', { xs: [[1, 2], [3]] })).toEqual([false, false])
+        expect(evaluate('! xs', { xs: [[], []] })).toEqual([true, true])
     })
 
-    it('double NOT is inverse of NOT', () => {
-        expect(evaluate('!! xs', { xs: [] })).toBe(false)
-        expect(evaluate('!! xs', { xs: [1] })).toBe(true)
+    it('logical NOT with -r flag reverses the list-aware result', () => {
+        // Generic -r is applied after the function result. With list-aware
+        // `!`, the negated list is reversed.
+        expect(evaluate('! -r xs', { xs: [true, true, false] })).toEqual([
+            true,
+            false,
+            false,
+        ])
+    })
+
+    it('logical NOT -l opt-out combined with -r is a no-op on scalars', () => {
+        // -l gives a scalar result; -r has nothing to reverse.
+        expect(evaluate('! -l -r xs', { xs: [true, false, true] })).toBe(false)
+    })
+
+    it('logical NOT on NaN and missing variables is true', () => {
+        expect(evaluate('! x', { x: NaN })).toBe(true)
+        expect(evaluate('! missing')).toBe(true)
+        expect(evaluate('! xs', { xs: [NaN, 1, NaN] })).toEqual([true, false, true])
+    })
+
+    it('logical NOT with no argument returns null', () => {
+        // minArgs=1, args.length=0 → dispatcher returns null.
+        expect(evaluate('!')).toBe(null)
+        expect(evaluate('!!')).toBe(null)
+    })
+
+    it('double NOT is inverse of NOT, and list-aware', () => {
+        // Scalar cases
         expect(evaluate('!! x', { x: 0 })).toBe(false)
         expect(evaluate('!! x', { x: 5 })).toBe(true)
+        expect(evaluate('!! x', { x: null })).toBe(false)
+        expect(evaluate('!! x', { x: '' })).toBe(false)
+        expect(evaluate('!! x', { x: 'hi' })).toBe(true)
+        // List cases — per-element
+        expect(evaluate('!! xs', { xs: [] })).toEqual([])
+        expect(evaluate('!! xs', { xs: [1] })).toEqual([true])
+        expect(evaluate('!! xs', { xs: [true, false, 0, 1, 'Y', '', null] })).toEqual([
+            true,
+            false,
+            false,
+            true,
+            true,
+            false,
+            false,
+        ])
+        // -l opt-out
+        expect(evaluate('!! -l xs', { xs: [] })).toBe(false)
+        expect(evaluate('!! -l xs', { xs: [1] })).toBe(true)
     })
 
     it('ternary treats zero as falsy (condition branch)', () => {
         expect(evaluate('? x "yes" "no"', { x: 0 })).toBe('no')
         expect(evaluate('? x "yes" "no"', { x: 5 })).toBe('yes')
+    })
+})
+
+// ============================================================================
+// List rendering (formatList)
+// ============================================================================
+
+describe('list rendering', () => {
+    // Regression: formatList used to drop any JS-falsy item, which meant
+    // a list of numbers containing 0 rendered as "1, 2" instead of
+    // "1, 0, 2", and a list of booleans lost its `false`s. The fix uses
+    // structural isEmpty, matching the rest of the join semantics.
+
+    it('renders a list of numbers including zero', () => {
+        expect(run('{xs}', { xs: [1, 0, 2] })).toBe('1, 0, 2')
+        expect(run('{xs}', { xs: [0] })).toBe('0')
+        expect(run('{xs}', { xs: [0, 0, 0] })).toBe('0, 0, 0')
+    })
+
+    it('renders a list of booleans including false', () => {
+        expect(run('{xs}', { xs: [true, false, true] })).toBe('true, false, true')
+        expect(run('{xs}', { xs: [false] })).toBe('false')
+    })
+
+    it('renders "0" as a legitimate string value', () => {
+        expect(run('{xs}', { xs: ['a', '0', 'b'] })).toBe('a, 0, b')
+    })
+
+    it('drops structurally-empty items from rendered lists', () => {
+        // null, undefined, "" are structurally empty and should drop.
+        // NaN is also structurally empty.
+        expect(run('{xs}', { xs: [1, null, 2] })).toBe('1, 2')
+        expect(run('{xs}', { xs: ['a', '', 'b'] })).toBe('a, b')
+        expect(run('{xs}', { xs: [1, undefined, 2] })).toBe('1, 2')
+    })
+
+    it('renders a list-aware NOT result with its booleans intact', () => {
+        // End-to-end: the Plain `WHERE NOT …` path compiles to `(! list)`
+        // which returns a list of booleans; rendering it should preserve
+        // both `true` and `false`.
+        expect(run('{! xs}', { xs: [true, false, true] })).toBe('false, true, false')
     })
 })
 

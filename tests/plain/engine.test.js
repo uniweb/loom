@@ -236,9 +236,120 @@ describe('plain engine — aggregation', () => {
     })
 })
 
+// -----------------------------------------------------------------------------
+// WHERE NOT — list-aware negation filter
+// -----------------------------------------------------------------------------
+//
+// `WHERE NOT x` compiles to `(? (! list.x) list.field)` via the Plain
+// translator's existing `NOT` → `(!)` mapping. `!` is a list-aware
+// unary operator (see the `unary` category in core/functions.js and
+// tests/engine.test.js for its scalar + list-aware behavior). The
+// end-to-end tests below lock in `WHERE NOT …` against the kinds of
+// mixed database-shape values that motivated the fix:
+//
+//   true, false, 0, 1, "Y", "N", null, "", undefined
+//
+// Real report templates see all of these depending on the DB driver.
+// Per-element isFalsy is the only semantics that correctly classifies
+// all of them for a "WHERE NOT draft"-style filter.
+
+describe('plain engine — WHERE NOT', () => {
+    const mixed = [
+        { title: 'A', draft: true },
+        { title: 'B', draft: false },
+        { title: 'C', draft: 0 },
+        { title: 'D', draft: 1 },
+        { title: 'E', draft: 'Y' },
+        { title: 'F', draft: '' },
+        { title: 'G', draft: null },
+        { title: 'H' }, // missing
+    ]
+
+    it('SHOW … WHERE NOT x filters out every isFalsy shape', () => {
+        // Non-drafts (per isFalsy): B(false), C(0), F(""), G(null), H(missing)
+        // Drafts: A(true), D(1), E("Y" — non-empty string is truthy)
+        const r = render('{SHOW pubs.title WHERE NOT draft}', { pubs: mixed })
+        expect(r).toBe('B, C, F, G, H')
+    })
+
+    it('COUNT OF … WHERE NOT x counts the isFalsy items', () => {
+        expect(evaluate('COUNT OF pubs WHERE NOT draft', { pubs: mixed })).toBe(5)
+    })
+
+    it('WHERE NOT x AND y combines element-wise', () => {
+        const pubs = [
+            { t: 'A', draft: true, refereed: true },
+            { t: 'B', draft: false, refereed: true },
+            { t: 'C', draft: false, refereed: false },
+            { t: 'D', draft: true, refereed: false },
+        ]
+        // Not drafts and refereed → only B.
+        expect(render('{SHOW pubs.t WHERE NOT draft AND refereed}', { pubs })).toBe('B')
+    })
+
+    it('de Morgan: NOT a AND NOT b  ===  NOT (a OR b)', () => {
+        const pubs = [
+            { t: 'A', draft: true, refereed: true },
+            { t: 'B', draft: false, refereed: true },
+            { t: 'C', draft: false, refereed: false },
+            { t: 'D', draft: true, refereed: false },
+        ]
+        // Not a draft AND not refereed — only C.
+        expect(
+            render('{SHOW pubs.t WHERE NOT draft AND NOT refereed}', { pubs }),
+        ).toBe('C')
+        // Not a draft OR not refereed — B, C, D.
+        expect(
+            render('{SHOW pubs.t WHERE NOT draft OR NOT refereed}', { pubs }),
+        ).toBe('B, C, D')
+    })
+
+    it('WHERE NOT works with a comparison on the left', () => {
+        const pubs = [{ year: 2018 }, { year: 2023 }, { year: 2024 }]
+        // "Not recent" = not (year > 2020) = 2018 only.
+        expect(evaluate('COUNT OF pubs WHERE NOT year > 2020', { pubs })).toBe(1)
+    })
+})
+
 describe('plain engine — loom passthrough', () => {
     it('raw Loom placeholder still works', () => {
         expect(render('{+ a b}', { a: 2, b: 3 })).toBe('5')
+    })
+
+    // Regression: Compact expressions using operators outside Plain's
+    // operator set (`#`, `~`, `^`, `\`, `<>`, `@` in special positions)
+    // must fall through to LoomCore unchanged. The tokenizer emits
+    // `unknown` tokens for these characters, the Plain parser rejects,
+    // and `Loom.translateExpression` catches and returns the original
+    // input verbatim. Before the fix, the tokenizer silently dropped
+    // unknown chars and the parser happily mis-parsed the remaining
+    // tokens, producing wrong output.
+
+    it('Compact range (~ …) at top level renders correctly', () => {
+        const r = render('{# (~ start_date end_date)}', {
+            start_date: '2000/01/02',
+            end_date: '2010/12/31',
+        })
+        expect(r).toContain('2000')
+        expect(r).toContain('2010')
+    })
+
+    it('Compact # at the start of a placeholder renders correctly', () => {
+        // `# -date=long` is a Compact-form format call. Plain's
+        // tokenizer doesn't recognize `#`, so the whole expression
+        // falls through to LoomCore.
+        const r = render('{# -date=long start_date}', { start_date: '2000/01/15' })
+        expect(r).toBe('January 15, 2000')
+    })
+
+    it('Compact matrix (^ -sz=2 …) falls through without corruption', () => {
+        const r = render('{# -json (^ -sz=2 "a" "b")}', {})
+        // Before the fix, `^` was silently dropped and the resulting
+        // token stream parsed as a bogus function call. After the fix,
+        // LoomCore evaluates the Compact expression correctly.
+        expect(r).toContain('[')
+        expect(r).toContain('"a"')
+        expect(r).toContain('"b"')
     })
 
     it('mixed plain and raw loom in the same template', () => {

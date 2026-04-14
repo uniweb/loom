@@ -195,8 +195,16 @@ function splitRawTokens(input) {
             continue
         }
 
-        // Unknown character — skip to avoid infinite loops. Callers can
-        // fall back to raw Loom if the parser later rejects the result.
+        // Unknown character — emit as a distinct token type so the parser
+        // always rejects it and `translateExpression`'s catch-block falls
+        // back to the original input. The previous behavior silently
+        // dropped unknown chars, which corrupted any Compact-form
+        // expression that used `#`, `~`, `@`, `^`, `\`, `<`, or `>` at
+        // a top level outside a `{…}` passthrough — e.g. a raw
+        // `(~ start_date end_date)` becomes valid-looking but wrong
+        // `start_date end_date`. Emitting `unknown` makes the fallback
+        // contract actually hold.
+        out.push({ type: 'unknown', value: c })
         i++
     }
 
