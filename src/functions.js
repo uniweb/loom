@@ -670,7 +670,7 @@ function joinWithSeparator(flags, args) {
     items = flatten(items);
 
     if (isString(separator)) {
-        const filteredItems = items.filter((item) => !isEmpty(item) || item === 0);
+        const filteredItems = items.filter((item) => !isEmpty(item));
 
         return filteredItems.join(separator);
     } else if (isArray(separator)) {
@@ -692,13 +692,13 @@ function joinWithSeparator(flags, args) {
 }
 
 function joinIfAllTrue(args) {
-    return args.every((item) => !isEmpty(item) || item === 0)
+    return args.every((item) => !isEmpty(item))
         ? joinWithSeparator({}, ['', ...args])
         : '';
 }
 
 function countItems(a, b) {
-    return isEmpty(b) ? a : a + 1;
+    return isFalsy(b) ? a : a + 1;
 }
 countItems.init = 0;
 
@@ -756,23 +756,18 @@ function applyFilter(fn, flags, args) {
 }
 
 function logicalAnd(args) {
-    // let lastNonEmpty = null;
-
-    // Iterate through each condition to find the first true condition
+    // Short-circuit on the first falsy arg; otherwise return the last.
     for (let i = 0; i < args.length; i++) {
-        if (isEmpty(args[i])) return args[i];
-
-        // lastNonEmpty = args[i];
+        if (isFalsy(args[i])) return args[i];
     }
 
     return args[args.length - 1];
 }
 
 function logicalOr(args) {
-    // Iterate through each condition to find the first true condition
+    // Return the first truthy arg; null if all are falsy.
     for (let i = 0; i < args.length; i++) {
-        if (!isEmpty(args[i])) {
-            // Return the corresponding case if the condition is true
+        if (!isFalsy(args[i])) {
             return args[i];
         }
     }
@@ -1082,11 +1077,11 @@ function notEqualStrict(a, b) {
 }
 
 function logicalNot(flags, value) {
-    return !value; // Logical NOT operation
+    return isFalsy(value);
 }
 
 function logicalNotNot(flags, value) {
-    return !!value; // Logical NOT operation
+    return !isFalsy(value);
 }
 
 /**
@@ -1298,7 +1293,7 @@ function switchCase(flags, conditions, cases) {
 
     // Iterate through each condition to find the first true condition
     for (let i = 0; i < conditions.length; i++) {
-        if (!isEmpty(conditions[i])) {
+        if (!isFalsy(conditions[i])) {
             // Return the corresponding case if the condition is true
             return cases[i];
         }
@@ -1317,13 +1312,20 @@ function isZero(value) {
     return value === 0 || value === '0';
 }
 
+/**
+ * Structural emptiness — "should this value drop from text output?"
+ *
+ * Treats as empty: "", null, undefined, NaN, [], {}, and BaseEntity
+ * instances that report themselves empty. Numbers (including 0), "0",
+ * and false are NOT empty — they are legitimate output values.
+ *
+ * For "is this a false condition?" semantics (used by conditionals and
+ * logical operators), use isFalsy() instead.
+ */
 function isEmpty(value) {
-    // Check for falsy values which covers undefined, null, false, 0, NaN, and ""
-    if (!value || value === '0') {
-        return true;
-    }
+    if (value === null || value === undefined) return true;
+    if (value === '' || Number.isNaN(value)) return true;
 
-    // Check if it's an array and empty
     if (Array.isArray(value)) {
         return value.length === 0;
     }
@@ -1332,12 +1334,40 @@ function isEmpty(value) {
         return true;
     }
 
-    // Check if it's an object (not null, array, etc.) and empty
     if (typeof value === 'object' && value.constructor === Object) {
         return Object.keys(value).length === 0;
     }
 
-    return false; // If none of the above, it's not considered empty
+    return false;
+}
+
+/**
+ * Loom-style truthiness-inverse — "is this a false condition?"
+ *
+ * A broader check than JavaScript's `!value`. Includes the structural
+ * isEmpty set plus 0, "0", and false. Empty collections ([], {}) count
+ * as false, matching Python-style truthiness rather than JS (where
+ * ![] === false).
+ *
+ * Used by conditionals (?, &, |, !, !!) and count-of-truthy reducers
+ * (++!!). Internal helper — not part of the public API.
+ */
+function isFalsy(value) {
+    if (!value || value === '0') return true; // undefined, null, false, 0, NaN, "", "0"
+
+    if (Array.isArray(value)) {
+        return value.length === 0;
+    }
+
+    if (value instanceof BaseEntity && typeof value.isEmpty === 'function' && value.isEmpty()) {
+        return true;
+    }
+
+    if (typeof value === 'object' && value.constructor === Object) {
+        return Object.keys(value).length === 0;
+    }
+
+    return false;
 }
 
 /**
@@ -1471,7 +1501,7 @@ function isIncompleteDate(value) {
 function castAs(value, type, flags = {}) {
     switch (type) {
         case 'boolean':
-            return !isEmpty(value);
+            return !isFalsy(value);
         case 'date': {
             if (!isDate(value)) return null;
             if (value instanceof Date) return value;

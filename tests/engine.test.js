@@ -115,6 +115,26 @@ describe('joins', () => {
         const result = run("{+? 'Dr. ' title}", {})
         expect(result).toBe('')
     })
+
+    // Structural emptiness: 0 is a legitimate value and must survive
+    // joins. Prior behavior treated 0 as empty and dropped it, which
+    // was wrong — "Likes: 0" is correct output, not a bug.
+    it('conditional join includes literal zero', () => {
+        const result = run("{+? 'Likes: ' likes}", { likes: 0 })
+        expect(result).toBe('Likes: 0')
+    })
+
+    it('conditional join drops null but keeps zero', () => {
+        expect(run("{+? 'Likes: ' likes}", { likes: null })).toBe('')
+        expect(run("{+? 'Likes: ' likes}", { likes: 0 })).toBe('Likes: 0')
+    })
+
+    it('separator join keeps zero among string values', () => {
+        // The separator-join form filters out empty items but must
+        // preserve 0 as a legitimate value.
+        const result = run("{', ' a b c}", { a: 'first', b: 0, c: 'last' })
+        expect(result).toBe('first, 0, last')
+    })
 })
 
 // ============================================================================
@@ -239,6 +259,37 @@ describe('logical', () => {
     it('greater than', () => {
         expect(evaluate('> 5 3')).toBe(true)
         expect(evaluate('> 3 5')).toBe(false)
+    })
+
+    // Loom-style truthiness: empty collections are falsy (Python-style),
+    // unlike JavaScript where `![]` is false. The `!`, `!!`, `&`, `|`,
+    // `?`, and `++!!` operators all use the broader `isFalsy` check.
+    it('logical NOT treats empty array as falsy', () => {
+        expect(evaluate('! xs', { xs: [] })).toBe(true)
+        expect(evaluate('! xs', { xs: [1] })).toBe(false)
+    })
+
+    it('logical NOT treats empty object as falsy', () => {
+        expect(evaluate('! o', { o: {} })).toBe(true)
+        expect(evaluate('! o', { o: { a: 1 } })).toBe(false)
+    })
+
+    it('logical NOT treats zero and empty string as falsy', () => {
+        expect(evaluate('! x', { x: 0 })).toBe(true)
+        expect(evaluate('! x', { x: '' })).toBe(true)
+        expect(evaluate('! x', { x: '0' })).toBe(true)
+    })
+
+    it('double NOT is inverse of NOT', () => {
+        expect(evaluate('!! xs', { xs: [] })).toBe(false)
+        expect(evaluate('!! xs', { xs: [1] })).toBe(true)
+        expect(evaluate('!! x', { x: 0 })).toBe(false)
+        expect(evaluate('!! x', { x: 5 })).toBe(true)
+    })
+
+    it('ternary treats zero as falsy (condition branch)', () => {
+        expect(evaluate('? x "yes" "no"', { x: 0 })).toBe('no')
+        expect(evaluate('? x "yes" "no"', { x: 5 })).toBe('yes')
     })
 })
 
@@ -368,6 +419,21 @@ describe('collectors', () => {
     it('count items in a list of numbers', () => {
         const vars = { nums: [100, 200, 300] }
         expect(evaluate('++!! nums', vars)).toBe(3)
+    })
+
+    it('count skips zero because zero is falsy', () => {
+        const vars = { xs: [1, 0, 2] }
+        expect(evaluate('++!! xs', vars)).toBe(2)
+    })
+
+    it('count skips false because false is falsy', () => {
+        const vars = { flags: [true, false, true] }
+        expect(evaluate('++!! flags', vars)).toBe(2)
+    })
+
+    it('count skips empty arrays because empty collections are falsy', () => {
+        const vars = { groups: [[1], [], [2]] }
+        expect(evaluate('++!! groups', vars)).toBe(2)
     })
 
     it('formatter does not leak inferred type across list items', () => {
