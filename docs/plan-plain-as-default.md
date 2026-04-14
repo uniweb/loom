@@ -1,19 +1,25 @@
 # Plan: Promote Plain form to default Loom, split empty/falsy semantics
 
-**Status:** Design locked, ready to implement.
+**Status:** Design locked, partially implemented. Revised 2026-04-14 after session review.
 **Audience:** The developer (human or AI) implementing this change. Assumes no prior context beyond the codebase itself. Read this document front-to-back before touching any file.
+
+> **2026-04-14 revision note.** This plan was written before the April 2026 session documented in `work-log-2026-04.md`. That session already landed what was originally "change 2" (snippet-body translation) as part of the Plain integration, and incidentally fixed two Loom bugs (`++!!` reducer init, `applyFormatter` flag stickiness). The current test count is **164**, not 128. The revised scope below reflects what's actually left to do. Section 2 of this document is kept for historical context only — it describes work already in the repo.
 
 ---
 
-## Executive summary
+## Executive summary (revised)
 
-Three coordinated changes to `@uniweb/loom`:
+Two coordinated code changes to `@uniweb/loom`, plus a follow-up architectural investigation:
 
-1. **Promote Plain form to the default language.** Today `@uniweb/loom` exports a symbolic (Polish-notation) `Loom` class, and `@uniweb/loom/plain` exports a `Plain` wrapper that accepts a natural-language surface syntax (`SHOW … WHERE … SORTED BY …`) and compiles it to the symbolic engine. Flip this: `@uniweb/loom` should export `Loom` — the Plain-enabled class — and a new `@uniweb/loom/core` subpath should export `LoomCore`, the raw symbolic engine. Rationale: Plain form is the audience-appropriate front door. The symbolic form remains available for power users and as an escape hatch inside Plain templates.
-2. **Fix the snippet-body translation gap.** The current `Plain` class hands snippet definitions to its internal Loom instance unchanged. Snippet bodies written in Plain syntax are parsed as symbolic Loom and fail. Fix: at construction time, walk snippet definitions, translate each `{body}` / `(body)` block through the Plain translator, then hand the translated definitions to the symbolic engine.
-3. **Split `isEmpty` into `isEmpty` (structural) and `isFalsy` (Loom-style truthiness).** The current single `isEmpty` check conflates "should this drop from output?" (structural emptiness) with "is this a false condition?" (truthiness). The two need different rules, and the existing code already patches around the conflation ad-hoc in joins. Formalize the split: `isEmpty` = `"" | null | undefined | NaN | [] | {}` + `BaseEntity.isEmpty()`, `isFalsy` = Python-style (`isEmpty` set plus `0`, `"0"`, `false`).
+1. **Split `isEmpty` into `isEmpty` (structural) and `isFalsy` (Loom-style truthiness).** The current single `isEmpty` check conflates "should this drop from output?" (structural emptiness) with "is this a false condition?" (truthiness). The two need different rules, and the existing code already patches around the conflation ad-hoc in joins (`|| item === 0` at `src/functions.js:673` and `:695`). Formalize the split: `isEmpty` = `"" | null | undefined | NaN | [] | {}` + `BaseEntity.isEmpty()`, `isFalsy` = Python-style (`isEmpty` set plus `0`, `"0"`, `false`). **Do this first** — it's the most contained change, and the test updates lock in the new semantics before the rename shuffles file paths.
 
-There's also a **documentation-only change** around keyword casing (ALL CAPS as the stable contract, lowercase as SQL-style convenience). No code change for that — the tokenizer's current case-insensitive matching is correct. Docs must carry the ALL CAPS guarantee as a documented invariant.
+2. **Promote Plain form to the default language.** Today `@uniweb/loom` exports a symbolic (Polish-notation) `Loom` class, and `@uniweb/loom/plain` exports a `Plain` wrapper that accepts a natural-language surface syntax and compiles it to the symbolic engine. Flip this: `@uniweb/loom` should export `Loom` — the Plain-enabled class — and a new `@uniweb/loom/core` subpath should export `LoomCore`, the raw symbolic engine. Rationale: Plain form is the audience-appropriate front door. The symbolic form remains available for power users and as an escape hatch inside Plain templates.
+
+3. **Position-aware keyword matching (follow-up, separate work).** The README-v3 keyword-casing section promises a contract the current tokenizer doesn't deliver: bare `{count}` will still parse as a keyword even when a user variable named `count` exists, because the Plain tokenizer is case-insensitive and eager. The principled fix is position-aware matching — treat tokens as keywords only where the grammar demands one, falling back to identifier otherwise. This is deliberately deferred until after the rename so we can study the tokenizer/parser interaction with Plain-as-default in place and decide whether ALL CAPS needs to remain a user-visible contract at all. **Do not attempt a doc-only patch** in the meantime; the README's current wording stays as-is and we revisit it after the position-aware work.
+
+### Originally "change 2" — already implemented
+
+The plan originally called for a third change: fixing snippet-body translation so Plain-form bodies are translated at construction time before being handed to the symbolic engine. This work landed in the April 2026 session. See `src/plain/engine.js:41-57` (`_prepareSnippets`) and `work-log-2026-04.md` section 2. The historical description is preserved in section 2 below for reference. **Skip it when implementing.**
 
 ---
 
@@ -154,11 +160,13 @@ The two differ on three values: `0`, `"0"`, `false` are falsy but not empty. `Na
 
 ---
 
-### 2. Snippet-body translation fix (do this second)
+### 2. Snippet-body translation fix — ALREADY DONE (historical, do not re-implement)
+
+> This section describes work that landed in the April 2026 session. The current `src/plain/engine.js` already implements `_prepareSnippets` using `parseSnippets` from the symbolic tokenizer, translates text-body snippets via `translateTemplate`, and expression-body snippets via `translateExpression`. Pre-built function values pass through unchanged. The `$0` flag-bag path is covered by existing tests. **Skip this section when implementing.** It's preserved for historical context and for anyone auditing why the design took the shape it did.
 
 **File:** `src/plain/engine.js`
 
-**Current state:**
+**Current state (at the time this plan was written — now superseded):**
 
 ```js
 constructor(snippets = {}, functions = {}) {
@@ -380,9 +388,9 @@ Document this in `README.md` (already done in `README-v3.md`, section "Keyword c
 
 ---
 
-## Sequencing and commits
+## Sequencing and commits (revised)
 
-Commits in this order, each landing in a working state:
+Revised sequence — the snippet-fix commit is dropped because that work already shipped. Each commit lands in a working state:
 
 **Commit 1: `feat: split isEmpty into structural emptiness and isFalsy truthiness`**
 - Add `isFalsy` in `src/functions.js`.
@@ -393,13 +401,7 @@ Commits in this order, each landing in a working state:
 - Update and add tests (see Testing section).
 - Commit message body: "Splits the overloaded `isEmpty` check into two: `isEmpty` for 'should this drop from output?' (structural) and `isFalsy` for 'is this a false condition?' (Python-style truthiness). Zero is non-empty; empty collections are falsy. See docs/plan-plain-as-default.md for rationale."
 
-**Commit 2: `feat: translate Plain snippet bodies at construction time`**
-- Implement `translateSnippets` / `translateSnippetBody` in `src/plain/engine.js` (this file is still at that path during commit 2 — it moves in commit 3).
-- Pass translated snippets to the internal symbolic engine.
-- Add tests for snippets with Plain-form bodies (both string and object forms).
-- Commit message body: "Plain-form snippets now translate their bodies at construction time so they work identically to top-level Plain templates. Previously, snippet bodies were handed to the symbolic engine unchanged and failed on Plain keywords."
-
-**Commit 3: `refactor: promote Plain to default Loom, move symbolic engine to /core`**
+**Commit 2: `refactor: promote Plain to default Loom, move symbolic engine to /core`**
 - File moves per the "Rename" section above.
 - Class renames: `Plain` → `Loom`, `Loom` → `LoomCore`.
 - Update `package.json` exports.
@@ -407,9 +409,15 @@ Commits in this order, each landing in a working state:
 - Replace `README.md` with the content from `README-v3.md`, then delete `README-v2.md` and `README-v3.md`.
 - Commit message body: "The package now exports `Loom` — the Plain-enabled class — from the default entry point. The raw symbolic engine is available as `LoomCore` from `@uniweb/loom/core` for users who want to skip the Plain parser or who need variable/function names that would otherwise shadow Plain keywords. Breaking change: the `@uniweb/loom/plain` subpath is removed; import from `@uniweb/loom` instead."
 
-**Optional commit 4: `docs: rewrite basics, quick-guide, language, examples, and history for Plain-as-default`**
+**Commit 3 (separate work session): position-aware keyword matching**
+
+The README-v3 keyword-casing section promises that writing a keyword in ALL CAPS disambiguates it from a user variable of the same name. The current Plain tokenizer is case-insensitive and matches keywords eagerly, so this contract is aspirational — bare `{count}` still parses as a keyword even when a `count` variable exists. Rather than patch the README down to match current behavior, we defer the decision and investigate a principled fix: **treat tokens as keywords only where grammar demands one, falling back to identifier otherwise.** If position-aware matching is achievable without excessive parser complexity, the ALL CAPS contract may become unnecessary (any identifier would resolve to a variable by default, and keywords would win only in keyword positions). If it's intractable, we either keep the ALL CAPS contract and actually enforce it in the tokenizer, or document reserved-name limitations honestly.
+
+This is intentionally not part of the rename commit. Do the work on its own after commit 2, with README-v3's current wording left as-is in the meantime.
+
+**Commit 4 (or separate session): `docs: rewrite basics, quick-guide, language, examples, and history for Plain-as-default`**
 - Doc rewrites per the "Docs to rewrite" section.
-- This can land together with commit 3 or as a follow-up, depending on how much time the implementer has. If doing it as a follow-up, the commit 3 message should note that the README is updated but the rest of the docs are pending.
+- Can land together with commit 2 or as a follow-up. If deferred to a new session, write a handoff document summarizing what's current vs stale so the next session starts from accurate ground.
 
 ---
 
