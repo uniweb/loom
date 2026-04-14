@@ -1,57 +1,68 @@
 # Loom Basics
 
-Loom is a small expression language for weaving data into text. You use it by mixing regular text with **placeholders** enclosed in curly braces `{}`. When the text is rendered, each placeholder is evaluated against a variable resolver and replaced with its result.
+Loom is a small expression language for weaving data into text. You mix regular text with **placeholders** in curly braces `{}`, and each placeholder is evaluated against a data resolver and replaced with its result.
 
-This page walks you through the essentials. If you want a dense reference, see [`language.md`](./language.md). If you want a 10-minute tour with just enough to start writing templates, see [`quick-guide.md`](./quick-guide.md).
+This page is your first long exposure to the language. If you want a faster tour, see [`quick-guide.md`](./quick-guide.md). If you want an exhaustive reference, see [`language.md`](./language.md).
 
-## Variables
-
-Insert a variable by wrapping its name in braces:
-
-```
-Hello, {name}!
-```
-
-If `name` resolves to `"John"`, the output is:
-
-```
-Hello, John!
-```
-
-Variable values come from a resolver function or object you pass into `loom.render()`:
+## The idea in one example
 
 ```js
 import { Loom } from '@uniweb/loom'
 
 const loom = new Loom()
+
+loom.render('Hello, {name}!', { name: 'Diego' })
+// → "Hello, Diego!"
+```
+
+Loom's strength isn't simple substitution — every template engine does that. It's what happens when the data on the other side of the placeholder is a list, or a tree of objects, or a set of grants that need to be filtered, sorted, aggregated, and formatted inline:
+
+```js
+const profile = {
+    first_name: 'Diego',
+    publications: [
+        { title: 'Cellular Bio', year: 2018, refereed: true },
+        { title: 'Forestry', year: 2022, refereed: false },
+        { title: 'Hydrology', year: 2023, refereed: true },
+    ],
+}
+
+loom.render(
+    'Hello, {first_name}! You have {COUNT OF publications} publications, ' +
+        '{COUNT OF publications WHERE refereed} of them refereed.',
+    profile,
+)
+// → "Hello, Diego! You have 3 publications, 2 of them refereed."
+```
+
+That second placeholder, `{COUNT OF publications WHERE refereed}`, is Loom doing its real job — filtering a list and counting the result without leaving the template.
+
+## Loom is like SQL for templates
+
+A developer writes the template; non-technical staff read and adjust it without having to re-ship code. SQL works the same way: engineers write the queries, analysts read and tweak them. Loom is that relationship applied to text generation — reports, CVs, dashboards, form letters.
+
+This is why the natural-language form is the default. You shouldn't need to memorize Polish-notation operators to change "show publications sorted by year" to "show publications sorted by year descending."
+
+## Variables
+
+Wrap a name in braces to insert a variable:
+
+```
+Hello, {name}!
+```
+
+Variable values come from a resolver — either a plain object or a `(key) => value` function — passed as the second argument to `render()`:
+
+```js
 loom.render('Hello, {name}!', { name: 'John' })
 // → "Hello, John!"
 ```
 
-Variables can hold any JSON-serializable value: strings, numbers, lists, nested maps. Loom's strength is in the operations you can perform on those values inside a placeholder.
-
-### Variable names with spaces or special casing
-
-Variable names are case-sensitive and cannot contain spaces. To reference a variable with unusual casing, wrap the name in backticks — Loom converts it to the standard snake_case form:
-
-```
-{`Start Date`}    // equivalent to {start_date}
-{`First Name`}    // equivalent to {first_name}
-```
-
-### Localized variable labels
-
-Prefix a variable name with `@` to retrieve its **label** instead of its value. Labels are typically the human-readable name of a field, and can be localized:
-
-```
-{@address}: {address}
-```
-
-In English, this might render as `Address: 123 Main St`. In Spanish, `Dirección: 123 Main St`. The `@`-prefixed lookup returns the label; the bare lookup returns the value. Whether a given resolver provides labels is up to you — Loom just gives you a clean syntax for asking.
+Variables can hold any JSON-serializable value: strings, numbers, booleans, lists, nested maps. What makes Loom compact is the set of things you can do with those values *inside* a placeholder.
 
 ### Dot notation
 
-Use dot notation to reach into nested maps and lists:
+Reach into nested maps and lists with `.`:
 
 ```js
 const data = {
@@ -65,191 +76,257 @@ const data = {
 ```
 {member.name}                    // "John"
 {member.publications.0.title}    // "Cellular Bio"
-{member.publications.1.title}    // "Forestry"
 {member.publications.title}      // ["Cellular Bio", "Forestry"]
 ```
 
-Notice the last form: when you access a property on a list of maps, Loom returns a list of that property across all elements. This is the foundation for list-processing — most Loom functions can operate on lists naturally.
+The last one is the key idea: when you access a property on a **list of maps**, Loom returns the list of that property across all elements. This is the foundation for list-processing — most Loom operations treat lists naturally and you rarely need an explicit loop.
 
-## Functions
+### Variable names with spaces
 
-Placeholders can contain functions in addition to variables. Functions use **Polish notation**: the function name comes first, then the arguments, separated by spaces.
-
-```
-{+ 2 3}           // → 5
-{+ price 10}      // adds 10 to the value of `price`
-{+ 2 (* 3 4)}     // nested: → 14
-```
-
-Inside a placeholder, you can omit the outer parentheses. These two are equivalent:
+Variable names are case-sensitive and can't contain spaces in their bare form. Wrap the name in backticks and Loom normalizes it to snake_case:
 
 ```
-{+ 2 3}
-{(+ 2 3)}
+{`Start Date`}    // equivalent to {start_date}
+{`First Name`}    // equivalent to {first_name}
 ```
 
-Nested function calls require explicit parentheses:
+### Localized labels
+
+Prefix a variable name with `@` to get its **label** instead of its value:
 
 ```
-{+ price (* tax 0.05)}
+{@address}: {address}
 ```
 
-## Data types
+Your resolver decides what `@address` returns — typically a human-readable, possibly localized, field label. Loom just gives you a clean syntax for asking.
 
-Loom expressions can use these types:
+## Plain form: verbs, values, modifiers
 
-- **Number** — `7`, `-0.5`, `3.14`
-- **Text** — enclosed by single quotes, double quotes, or backticks: `"Hello"`, `'World'`
-- **List** — space-separated values in square brackets: `[1 "two" [3 4]]`
-- **Map** — key-value pairs in curly braces (inside a function call): `{name: "John" age: 30}`
-- **Range** — intervals with a start and end, built with the `~` function: `(~ "2000/01/01" "2010/12/31")`
-- **Regex** — built with the `\` function
+The default way to write a Loom expression reads like a description of what you want. There are a handful of verbs:
 
-Commas are optional and ignored — they can be used as visual separators but don't change meaning.
+- **`SHOW`** — display a value, optionally with modifiers
+- **`IF … OTHERWISE …`** — pick between two values
+- **`COUNT OF`**, **`TOTAL OF`** / **`SUM OF`**, **`AVERAGE OF`** — aggregate a list
 
-## Empty values
+And a handful of modifiers that chain onto any value:
 
-A value is considered **empty** (or falsy) if it equals any of:
+- **`WHERE`** / trailing **`IF`** — filter a list by a condition
+- **`SORTED BY`** … **`ASCENDING`** / **`DESCENDING`** — sort a list
+- **`JOINED BY`** — pick a custom separator when the list is rendered
+- **`AS`** — format the value (`AS long date`, `AS currency USD`, `AS phone`, …)
+- **`WITH LABEL`** — prepend a localized label
 
-```
-""   "0"   0   false   null   []   {}   undefined
-```
-
-This matters because several Loom functions — especially the conditional join `+?` and the filter functions `&` and `|` — treat empty values specially.
-
-## Joining with a separator
-
-Joining pieces of text with a separator is so common that Loom has a shortcut: when the first token inside a placeholder is a quoted string, it's treated as the separator for a join function.
+Here's what a realistic expression looks like:
 
 ```
-{', ' a b c}               // same as: {+: ', ' a b c}
+{SHOW publications.title WHERE refereed SORTED BY year DESCENDING JOINED BY ', '}
+```
+
+Read it left to right: *show the titles of the publications where refereed is true, sorted by year descending, joined by commas.* That's exactly what it does.
+
+### SHOW is optional for bare values
+
+If all you're doing is inserting a value, you don't need to say `SHOW`:
+
+```
+{publication.title}
+{SHOW publication.title}    // same thing
+```
+
+Use `SHOW` when you want to attach modifiers. It reads better when modifiers are involved and is noise when they aren't.
+
+### Modifiers compose
+
+`SHOW` accepts modifiers in any order. The translator applies them in a canonical sequence internally (filter → sort → join → format → label), so you can write them in whichever order reads best:
+
+```
+{SHOW publications.title SORTED BY year DESCENDING WHERE refereed JOINED BY ', '}
+```
+
+parses the same as the earlier example.
+
+### Conditionals
+
+`IF … OTHERWISE …` picks between two values:
+
+```
+{IF age >= 18 SHOW 'Adult' OTHERWISE SHOW 'Minor'}
+```
+
+The `SHOW` after `OTHERWISE` is optional when both branches are simple values, and `THEN` / `ELSE` work as synonyms for readers coming from SQL:
+
+```
+{IF age >= 18 THEN 'Adult' ELSE 'Minor'}
+{IF age >= 18 'Adult' 'Minor'}
+```
+
+All three compile to the same thing.
+
+### Aggregation
+
+Four verbs for collapsing a list to a single value:
+
+```
+{COUNT OF publications}                   // 3
+{COUNT OF publications WHERE refereed}    // 2
+{TOTAL OF grants.amount}                  // sum of all grant amounts
+{SUM OF grants.amount}                    // same as TOTAL OF
+{AVERAGE OF grants.amount}                // mean of the amounts
+```
+
+All four accept `WHERE`, `AS`, `WITH LABEL`, and the other modifiers:
+
+```
+{COUNT OF publications WHERE refereed AS number}
+{TOTAL OF grants.amount WHERE active AS currency USD}
+```
+
+## Joining text with a separator
+
+Joining fields with a separator is so common that Loom special-cases it. When the first token inside a placeholder is a quoted string, Loom treats it as the separator and joins everything after it:
+
+```
 {', ' city province country}
-// → "Ottawa, ON, Canada"
+// → "Fredericton, NB, Canada"
 ```
 
-Empty values are skipped, so if `province` is missing you get `"Ottawa, Canada"` — no awkward trailing comma or double separator.
+**Empty values are dropped**, so if `province` is missing you get `"Fredericton, Canada"` — no dangling comma. This is how you write `{', ' city province country}` and have it handle every missing-field combination without broken grammar.
 
-This is a big part of why Loom templates stay readable: joining variable fields is the most common operation, and it reads like English.
+## Graceful missing data
 
-## Conditional logic
-
-The `?` function is a ternary conditional — first argument is the condition, second is the "yes" value, third is the optional "no" value:
+In Loom, a value is **empty** if it's `""`, `null`, `undefined`, `NaN`, `[]`, or `{}` — the things that shouldn't appear in output. The conditional join `{+? …}` drops the entire clause if any referenced value is empty:
 
 ```
-{? is_adult "Adult" "Minor"}
-{? (> age 18) "Can vote" "Cannot vote yet"}
+{+? 'Dr. ' title}
+// → "Dr. Smith"   if title is "Smith"
+// → ""            if title is missing
 ```
 
-If the "no" value is omitted and the condition is false, the result is empty.
-
-For multi-branch logic, use `??` or `???` (each extra `?` adds another condition slot):
+Combine it with plain text to build sentences that gracefully collapse when fields are missing:
 
 ```
-{??? (> age 65) (> age 18) (> age 13) "Senior" "Adult" "Teen" "Child"}
+{+? 'Born in ' year}{+? ' in ' city}.
+// → "Born in 1985 in Montreal."
+// → "Born in 1985."        (city missing)
+// → ""                      (year missing)
 ```
 
-If `age = 5`, the result is `"Child"`.
-
-## Formatting with `#`
-
-The format function `#` is the Swiss Army knife of Loom: it handles dates, numbers, currencies, phone numbers, labels, lists, JSON, and more. You control what it does with **option flags**.
+**Numbers are never empty.** `0` is a legitimate value and joins into output normally:
 
 ```
-{# -date=full start_date}          // "Saturday, January 15, 2000"
-{# -date=long start_date}          // "January 15, 2000"
-{# -currency=usd price}            // "$1,200.00"
-{# -json members}                  // JSON string of the members variable
-{# -label @location}               // the localized label for "location"
+{+? 'Likes: ' likes}
+// likes = 0     → "Likes: 0"
+// likes = null  → ""
 ```
 
-You can omit the `#` when the intent is clear from the flags:
+Loom also has a separate notion of "falsy" for conditional logic, where `0` and empty collections count as false. Most of the time you don't have to think about the distinction — `+?` and the join shortcut use "empty" (so `0` shows up), and `?` / `&` / `|` use "falsy" (so `0` fails the condition). See [`language.md`](./language.md#empty-vs-falsy) for the full rules.
+
+## Formatting
+
+The `AS` modifier formats a value:
 
 ```
-{start_date -date=full}
-{price -currency=usd}
+{SHOW start_date AS long date}       // → "January 15, 2000"
+{SHOW start_date AS full date}       // → "Saturday, January 15, 2000"
+{SHOW start_date AS year only}       // → "2000"
+{SHOW price AS number}               // → "1,200"    (locale grouping)
+{SHOW data AS JSON}                  // → JSON string
 ```
 
-See the [language reference](./language.md#the-format-function) for the full list of `#` flags.
+The recognized format types include `date` (with styles `long`, `full`, `short`, `medium`, `year only`, `month only`), `number`, `JSON`, and the specialized creators `currency`, `phone`, `address`, `email` (these expect their corresponding creator objects and are covered in the [language reference](./language.md#creators)).
+
+`WITH LABEL` prepends the localized field label:
+
+```
+{SHOW price WITH LABEL}              // uses the default label for `price`
+{SHOW price WITH LABEL 'Cost'}       // uses a custom label
+```
+
+## Calling `render` vs `evaluateText`
+
+A `Loom` instance has two methods:
+
+- **`loom.render(template, vars)`** — walks a template string, evaluates every `{…}` placeholder, returns the resolved text.
+- **`loom.evaluateText(expression, vars)`** — evaluates a single expression and returns whatever type it produces. Use this when you want the data itself — a number, a boolean, a list — rather than a string.
+
+```js
+loom.evaluateText('COUNT OF publications WHERE refereed', profile)
+// → 2   (a number)
+
+loom.evaluateText('SHOW publications.title SORTED BY year DESCENDING', profile)
+// → ['Hydrology', 'Forestry', 'Cellular Bio']   (a list)
+```
+
+The `vars` argument can be a plain object or a `(key) => value` resolver function — both work the same way throughout the library.
 
 ## A realistic example
 
-Here's a small template that pulls together everything above:
+Putting it together:
 
 ```
-Home Address:
+{first_name} {family_name}
 
 {', ' street city province country postal_code}
-
 {+? 'Phone: ' phone}
+{+? 'Department of ' department}
 
-{+? 'Faculty/Department of ' faculty_department}
+Publications: {COUNT OF publications} total, {COUNT OF publications WHERE refereed} refereed.
 
-Education: {', ' (. 'degree_name' education) (. '0.organization' education)}
+Recent work:
+{SHOW publications.title WHERE refereed AND year > 2020 SORTED BY year DESCENDING JOINED BY ', '}
 ```
 
-Given a data resolver:
+If `phone` or `department` is missing, those lines render as empty strings. If `province` is missing, the address line closes up around it. If no publications meet the filter, the "Recent work" line leaves an empty list.
 
-```js
-{
-    street: '123 Main St',
-    city: 'Fredericton',
-    province: 'NB',
-    country: 'Canada',
-    postal_code: 'E3B 5A3',
-    phone: '555-0123',
-    faculty_department: 'Engineering',
-    education: [
-        { degree_name: 'PhD', organization: 'University of Toronto' },
-    ],
-}
-```
+The template author can read this. They can change `refereed` to `published`, or `year > 2020` to `year > 2015`, without knowing JavaScript.
 
-The template renders as:
+## Loom's compact mode
+
+Everything above is Loom's **Plain form** — the natural-language default. Loom has a second surface, **Compact form**, that uses Polish-notation operators and is terser:
 
 ```
-Home Address:
-
-123 Main St, Fredericton, NB, Canada, E3B 5A3
-
-Phone: 555-0123
-
-Faculty/Department of Engineering
-
-Education: PhD, University of Toronto
+{SHOW publications.title WHERE refereed SORTED BY year DESCENDING JOINED BY ', '}
+{+: ', ' (>> -desc -by=year (? refereed publications.title))}
 ```
 
-And if `phone` and `faculty_department` were missing, those lines would render as empty strings — the conditional join `+?` drops the whole expression when any referenced value is empty. No broken sentences, no dangling prefixes.
+Both forms parse to the same internal representation and run on the same evaluator. Compact form is useful when the Plain phrasing gets long, or when you want something short inline inside a larger expression. You can mix the two freely — a nested `{…}` inside a Plain expression passes through as Compact form, which is the clean way to reach for symbolic precision mid-template:
+
+```
+{SHOW {+? 'Dr. ' title} WITH LABEL 'Name'}
+```
+
+For now, know that Compact form exists and you'll see it occasionally. The [language reference](./language.md) covers it in full.
 
 ## Snippets
 
-When you find yourself writing the same pattern in several places, extract it into a **snippet**. Snippets are user-defined shortcuts you pass to the `Loom` constructor; once defined, they behave like any other function.
-
-Define them in plain text as `[name args...] { body }` for text templates or `[name args...] ( body )` for expression bodies:
+When the same pattern shows up in several places, extract it into a **snippet**. Snippets are named reusable expressions you pass to the `Loom` constructor.
 
 ```js
 const loom = new Loom(`
-    [greet name] { Hello, {name}! }
-    [triple n] (* n 3)
+    [greet name]          { Hello, {name}! }
+    [recent pubs]         ( SHOW pubs.title WHERE year > 2020 )
+    [fullName first last] { {first} {last} }
 `)
 
 loom.render('{greet "Diego"}', () => undefined)
 // → "Hello, Diego!"
 
-loom.evaluateText('triple 7', () => undefined)
-// → 21
+loom.render('{fullName "Diego" "Macrini"}', () => undefined)
+// → "Diego Macrini"
 ```
 
-The two body forms are deliberately different:
+The body form matters:
 
 - **`{ body }`** — a text template. The body may contain its own `{…}` placeholders and is evaluated with `render()`, returning a string.
-- **`( body )`** — a single expression. Evaluated with `evaluateText()` and returns whatever type the expression produces — number, boolean, array, anything.
+- **`( body )`** — a single expression. Evaluated with `evaluateText()`, returns whatever type the expression produces.
 
-Snippets can call other snippets, reference outer resolver variables, accept variadic `...args`, and opt into receiving the flag bag via a special `$0` parameter. For the full reference — including the `$0` form and the programmatic object-shape constructor argument — see [`language.md`](./language.md#snippets).
+Snippet bodies accept Plain form, Compact form, or a mix — they're translated once at construction time.
+
+See [`language.md`](./language.md#snippets) for the full snippet reference, including variadic `...args` and the `$0` flag-bag parameter.
 
 ## Next steps
 
-- **[Quick guide](./quick-guide.md)** — a 10-minute tour of the most-used features, with more examples
-- **[Language reference](./language.md)** — the complete reference: all functions, all flags, all syntactic forms
+- **[Quick guide](./quick-guide.md)** — a 10-minute tour of the most-used features
+- **[Language reference](./language.md)** — the complete reference for every function, flag, and syntactic form in both surface forms
 - **[Examples](./examples.md)** — worked examples organized by task
-- **[Plain](./plain.md)** — a natural-language layer that compiles to Loom, for authors who'd rather write `{SHOW publications.title SORTED BY date}` than learn the symbolic form
-- **[AI prompt](./ai-prompt.md)** — a concise language summary you can paste into an LLM chat when you want help generating Loom expressions
+- **[AI prompt](./ai-prompt.md)** — paste into an LLM chat to generate Loom expressions from plain-English requirements

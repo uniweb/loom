@@ -1,6 +1,6 @@
 # Loom Examples
 
-A curated collection of worked examples organized by task. All examples are tested — they come from the project's test suite and produce the indicated output.
+Worked examples organized by task. Examples lead with Plain form and drop into Compact form where it reads better or shows something Plain doesn't have a verb for. Every example runs against the current implementation.
 
 ## Variable access
 
@@ -32,14 +32,8 @@ vars = {
 ```
 
 ```
-{users.0.name} is {users.0.age} years old and likes to eat {users.0.favoriteFruit},
-while {users.1.name} is {users.1.age} years old and likes to eat {users.1.favoriteFruit}.
-```
-
-Result:
-
-```
-John is 25 years old and likes to eat apple, while Jane is 30 years old and likes to eat banana.
+{users.0.name} is {users.0.age} years old and likes {users.0.favoriteFruit}.
+{users.1.name} is {users.1.age} years old and likes {users.1.favoriteFruit}.
 ```
 
 ### Reaching into a list of maps
@@ -60,16 +54,11 @@ vars = {
 {publications.type}        // → ["journal", "book", "journal"]
 ```
 
-Default formatting turns lists into comma-separated text:
+Default rendering turns lists into comma-separated text:
 
 ```
 Types: {publications.type}
-```
-
-Result:
-
-```
-Types: journal, book, journal
+// → "Types: journal, book, journal"
 ```
 
 ### Accessor function for picking and renaming
@@ -96,7 +85,7 @@ vars = {
 
 ## Joining text
 
-### Simple join with separator
+### Simple join with a separator
 
 ```js
 vars = { city: 'Fredericton', province: 'NB', country: 'Canada' }
@@ -107,7 +96,7 @@ vars = { city: 'Fredericton', province: 'NB', country: 'Canada' }
 // → "Fredericton, NB, Canada"
 ```
 
-### Join drops empty values
+### Empty values are dropped
 
 ```js
 vars = { city: 'Fredericton', province: '', country: 'Canada' }
@@ -118,11 +107,11 @@ vars = { city: 'Fredericton', province: '', country: 'Canada' }
 // → "Fredericton, Canada"
 ```
 
-The empty `province` is dropped — no double comma.
+No double commas; the empty field is dropped.
 
 ### Conditional join
 
-`+?` joins only if **all** referenced values are truthy. If any are empty, the whole expression is empty:
+`+?` joins only if all referenced values are non-empty. If any are empty, the whole expression is empty.
 
 ```
 {+? 'Dr. ' title}
@@ -130,17 +119,21 @@ The empty `province` is dropped — no double comma.
 // title = ""       → ""
 ```
 
-### Multi-part conditional join
+### Multi-part sentences that handle missing data
+
+```
+{+? 'Born in ' year}{+? ' in ' city}.
+// year = 1985, city = "Montreal"  → "Born in 1985 in Montreal."
+// year = 1985, city missing       → "Born in 1985."
+// year missing                    → ""
+```
+
+### Grouped optional clause
 
 ```
 {+? '(' (', ' affiliation department) ')'}
-```
-
-If either `affiliation` or `department` is empty, nothing is produced (no dangling parentheses). If both are present:
-
-```
-{+? '(' (', ' "Engineering" "UNB") ')'}
-// → "(Engineering, UNB)"
+// affiliation = "UNB", department = "Engineering" → "(Engineering, UNB)"
+// either missing                                   → ""
 ```
 
 ## Math and aggregation
@@ -148,8 +141,8 @@ If either `affiliation` or `department` is empty, nothing is produced (no dangli
 ### Basic arithmetic
 
 ```
-{+ 2 3}           // → 5
-{+ a b}           // → (a + b)
+{+ 2 3}            // → 5
+{+ a b}            // → (a + b)
 {* quantity unit_price}
 {/ total count}
 ```
@@ -166,7 +159,7 @@ vars = { prices: [100, 50, 20] }
 {/ (+ prices 10) 2}     // → [55, 30, 15]
 ```
 
-### Aggregations
+### Plain-form aggregation
 
 ```js
 vars = {
@@ -179,30 +172,43 @@ vars = {
 ```
 
 ```
-{++ grants.amount}                    // → 500000
-{# -currency=usd (++ grants.amount)}  // → "$500,000.00"
-
-{++!! grants.amount}                  // → 3   (count of truthy values)
-
-{/ (++ grants.amount) (++!! grants.amount)}
-// → 166666.66...   (average)
+{TOTAL OF grants.amount}                    // → "500,000"
+{AVERAGE OF grants.amount}                  // → "166,666.667"
+{COUNT OF grants}                           // → "3"
+{TOTAL OF grants.amount AS number}          // → "500,000"
 ```
+
+Those numeric outputs are locale-formatted by Loom's default formatter when rendered into text. Use `evaluateText` instead of `render` if you want the raw number:
+
+```js
+loom.evaluateText('TOTAL OF grants.amount', { grants }) // → 500000 (number)
+```
+
+### Aggregation with filters
+
+```
+{COUNT OF grants WHERE amount > 150000}
+{SUM OF grants.amount WHERE active}
+{AVERAGE OF pubs.year WHERE refereed}
+```
+
+`WHERE` on `SUM` / `TOTAL` / `AVERAGE` filters the source list before aggregating, so `SUM OF grants.amount WHERE active` is the total of active-grant amounts.
 
 ### Report-style sentence
 
 ```
-From {startYear} to {endYear}, {name} received a total funding of
-{# -currency=usd (++ grants.amount)} from {++!! grants} grants,
-with an average funding per grant of
-{# -currency=usd (/ (++ grants.amount) (++!! grants))}.
+{name} received {COUNT OF grants} grants totaling
+{TOTAL OF grants.amount}, averaging {AVERAGE OF grants.amount}
+per grant.
 ```
 
-Result:
+With `name = "Dr. Smith"` and the grants above:
 
 ```
-From 2020 to 2022, John Doe received a total funding of $500,000.00 from 3 grants,
-with an average funding per grant of $166,666.67.
+Dr. Smith received 3 grants totaling 500,000, averaging 166,666.667 per grant.
 ```
+
+Loom's default renderer applies locale number grouping to any numeric placeholder result. That's the right default for counts and monetary amounts, but it surprises people who try to render year integers (`{year}` renders `2020` as `"2,020"`). Pass year values as strings (`year: "2020"`), or use `{SHOW y AS year only}` on a date, to sidestep the grouping.
 
 ## Formatting
 
@@ -213,15 +219,19 @@ vars = { start_date: '2000/01/15' }
 ```
 
 ```
-{# -date=full start_date}    // "Saturday, January 15, 2000"
-{# -date=long start_date}    // "January 15, 2000"
-{# -date=medium start_date}  // "Jan 15, 2000"
-{# -date=short start_date}   // "1/15/00"
-{# -date=y start_date}       // "2000"
-{# -date=m start_date}       // "January"
-{# -date=mm start_date}      // "01"
-{# -date=ym start_date}      // "January 2000"
-{# -date=ymm start_date}     // "01/2000"
+{SHOW start_date AS full date}     // "Saturday, January 15, 2000"
+{SHOW start_date AS long date}     // "January 15, 2000"
+{SHOW start_date AS short date}    // "1/15/00"
+{SHOW start_date AS year only}     // "2000"
+```
+
+The Compact-form equivalents use the `#` formatter:
+
+```
+{# -date=full start_date}          // same as "AS full date"
+{# -date=long start_date}
+{# -date=short start_date}
+{# -date=y start_date}
 ```
 
 ### Date ranges
@@ -235,7 +245,7 @@ vars = { start_date: '2000/01/02', end_date: '' }
 // → "Jan 2, 2000 – Present"
 ```
 
-If the end date is empty, the range formatter shows "Present". Full symmetry with `start_date` being empty:
+The range formatter shows "Present" when the end date is empty, and has symmetric handling if the start is empty:
 
 ```js
 vars = { start_date: '', end_date: '2010/12/31' }
@@ -243,44 +253,26 @@ vars = { start_date: '', end_date: '2010/12/31' }
 
 ```
 {# (~ start_date end_date)}
-// → "Until Dec 31, 2010"
+// → "Present – Dec 31, 2010"
 ```
 
-### Currency and numbers
+### Numbers
 
 ```js
 vars = { price: 1200 }
 ```
 
 ```
-{# -number price}         // "1,200"
-{# -currency=usd price}   // "$1,200.00"
-{# -currency=eur price}   // "€1,200.00"
+{SHOW price AS number}    // → "1,200"   (locale-formatted)
 ```
 
-### Phone numbers
-
-```js
-vars = { phone: '1-613-444-5555' }
-```
-
-```
-{# -phone phone}
-// → "+1 (613) 444-5555"
-```
+Currency, phone, address, and email formats (`AS currency USD`, `AS phone`, `AS address`, `AS email`) dispatch to specialized formatters that expect their corresponding creator objects (`(currency …)`, `(phone …)`, `(address …)`, `(email …)`) rather than bare strings. Plain string inputs pass through mostly unchanged. See the language reference for the creator-object forms.
 
 ### Labels
 
-```js
-vars = {
-    name: 'John Smith',
-    '@name': 'Full Name',     // the localized label for `name`
-}
 ```
-
-```
-{': ' (# -label @name) name}
-// → "Full Name: John Smith"
+{SHOW price WITH LABEL}
+{SHOW price WITH LABEL 'Cost'}
 ```
 
 ## Conditionals
@@ -288,41 +280,36 @@ vars = {
 ### Simple if-else
 
 ```
-{? is_adult "Adult" "Minor"}
-{? (> age 18) "Adult" "Minor"}
-{? has_discount (* price 0.9) price}
+{IF is_adult SHOW 'Adult' OTHERWISE SHOW 'Minor'}
+{IF age >= 18 SHOW 'Adult' OTHERWISE SHOW 'Minor'}
+{IF has_discount (* price 0.9) price}
 ```
 
 ### Elide on false
 
-Omit the "else" value when you want nothing on a false condition:
+Omit the "else" branch when you want an empty result on false:
 
 ```
-{? is_premium "⭐ Premium"}
-// is_premium = true  → "⭐ Premium"
-// is_premium = false → ""
+{IF is_premium SHOW '⭐ Premium'}
+// is_premium = true   → "⭐ Premium"
+// is_premium = false  → ""
 ```
 
 ### Multi-branch
 
+Plain has `IF`; for three-plus branches, use Compact form's `??` / `???`:
+
 ```
-{??? (> age 65) (> age 18) (> age 13) "Senior" "Adult" "Teen" "Child"}
+{??? (> age 65) (> age 18) (> age 13) 'Senior' 'Adult' 'Teen' 'Child'}
 // age = 70 → "Senior"
 // age = 30 → "Adult"
 // age = 15 → "Teen"
 // age = 5  → "Child"
 ```
 
-### Conditions as lists
-
-```
-{? [(> age 18) (> age 25)] "Adult" "Youth"}
-// age = 20 → ["Adult", "Youth"]     (first is Adult, second is Youth since age < 25)
-```
-
 ## Filtering and counting
 
-### Equality filters
+### Filter and display
 
 ```js
 vars = {
@@ -336,36 +323,32 @@ vars = {
 ```
 
 ```
-{= publications.type "book"}
-// → [false, true, false, false]
-
-{? (= publications.type "book") 'long' 'short'}
-// → ["short", "long", "short", "short"]
+{SHOW publications.title WHERE refereed}
+{SHOW publications.title WHERE type = 'journal'}
+{SHOW publications.title WHERE refereed AND type = 'journal'}
 ```
 
 ### Counting matches
 
 ```
-In {year}, {name} published {++!! publications.refereed} refereed papers
-and {++!! (= publications.type "conference")} conference papers.
+In {year}, {name} published {COUNT OF publications WHERE refereed} refereed papers
+and {COUNT OF publications WHERE type = 'conference'} conference papers.
 ```
 
-### Conditional counts inside sentences
+### Count with comparison
 
 ```
-{name} has {++!! publications.refereed} refereed publications
-and {++!! (! publications.refereed)} non-refereed ones.
+{COUNT OF publications WHERE year > 2020}
 ```
 
 ## Sorting
 
-### Basic sort
+### Basic sort (Compact)
 
 ```
-{>> "b" "a" "c"}        // → ["a", "b", "c"]
-{>> 2 1 3}              // → [1, 2, 3]
-{>> -desc "a" "b" "c"}  // → ["c", "b", "a"]
-{>> -desc 3 2 1}        // → [3, 2, 1]
+{>> "b" "a" "c"}         // → ["a", "b", "c"]
+{>> 2 1 3}               // → [1, 2, 3]
+{>> -desc "a" "b" "c"}   // → ["c", "b", "a"]
 ```
 
 ### Sort as dates
@@ -375,11 +358,11 @@ and {++!! (! publications.refereed)} non-refereed ones.
 // → [["July 1, 2000"], ["2001/02/1"], ["2001/02/10"]]
 ```
 
-### Sort maps by first property
+### Sort with a Plain expression
 
 ```
-{>> {name: "b"} {name: "a"} {name: "c"}}
-// → [{name: "a"}, {name: "b"}, {name: "c"}]
+{SHOW items SORTED BY name DESCENDING}
+{SHOW items FROM HIGHEST TO LOWEST priority}
 ```
 
 ## Snippets
@@ -388,13 +371,32 @@ and {++!! (! publications.refereed)} non-refereed ones.
 
 ```js
 const loom = new Loom(`
-    [greet name day timeOfDay] { Good {timeOfDay}, {name}! How are you doing on this fine {day}? }
+    [greet name day timeOfDay] { Good {timeOfDay}, {name}! How are you on this fine {day}? }
 `)
 ```
 
 ```
 {greet "John" "Monday" "morning"}
-// → "Good morning, John! How are you doing on this fine Monday?"
+// → "Good morning, John! How are you on this fine Monday?"
+```
+
+### Snippet with Plain body
+
+Expression-body snippets can use Plain verbs directly:
+
+```js
+const loom = new Loom(`
+    [countRefereed pubs] ( COUNT OF pubs WHERE refereed )
+    [recent pubs]        ( SHOW pubs.title WHERE year > 2020 )
+`)
+```
+
+```
+{countRefereed publications}
+// → 2
+
+{recent publications}
+// → "New, Mid"    (titles where year > 2020)
 ```
 
 ### Snippet with flags and variadic args
@@ -409,10 +411,10 @@ const loom = new Loom(`
 
 ```
 {fancy -date -type=test "The Great Gatsby" "a" "b" "c"}
-// → "Options: {\"date\":true,\"type\":\"test\"} Title: The Great Gatsby Var args: [\"a\",\"b\",\"c\"]"
+// → "Options: {"date":true,"type":"test"} Title: The Great Gatsby Var args: ["a","b","c"]"
 ```
 
-### Expression snippets
+### Expression snippet
 
 A snippet defined with `( … )` is a pure expression:
 
@@ -442,6 +444,19 @@ const loom = new Loom(`
 // → "Hello, Diego Macrini!"
 ```
 
+### Passing a Plain sub-expression into a snippet
+
+```js
+const loom = new Loom('[bold text] { <b>{text}</b> }')
+```
+
+```
+{bold (SHOW price AS currency USD)}
+// → "<b>…formatted price…</b>"
+```
+
+The inner `SHOW price AS currency USD` is evaluated and passed to `bold` as a single argument.
+
 ## Custom JavaScript functions
 
 ```js
@@ -459,7 +474,7 @@ const loom = new Loom({}, {
 {daysSince "2024-01-01"}        // → (some number)
 ```
 
-Custom functions can use context variables inside their implementation:
+Custom functions can use the list-context variables inside their implementation:
 
 ```js
 const loom = new Loom({}, {
@@ -470,13 +485,36 @@ const loom = new Loom({}, {
 })
 ```
 
-When called on list items, each call gets the current `_index` and full `_items` array.
+Each call gets the current `_index` and full `_items` array when invoked on list items.
+
+## Mixing forms
+
+### Compact inside Plain
+
+A nested `{…}` inside a Plain expression passes through as Compact form:
+
+```
+{SHOW {+? 'Dr. ' title} WITH LABEL 'Name'}
+```
+
+The inner `+? 'Dr. ' title` is Compact — "conditional join 'Dr. ' with title" — and the outer `SHOW … WITH LABEL` wraps it with a label.
+
+### Placeholder-level mix
+
+Each `{…}` is parsed independently, so you can pick whichever form reads better per placeholder:
+
+```
+{SHOW member.name}                           ← Plain
+{+? 'Dr. ' member.title}                     ← Compact (conditional join)
+{TOTAL OF grants.amount AS currency USD}     ← Plain
+{# -date=y (>> -desc publications.date)}     ← Compact
+```
 
 ## Advanced: matrix operations
 
 ```
 {# -json (^ -sz=3 "a" "b")}
-// → [["a","b"],["a","b"],["a","b"]]    (3 rows of ["a", "b"])
+// → [["a","b"],["a","b"],["a","b"]]    (3 rows of ["a","b"])
 
 {# -json (^ -sz=4 [1 2 3] [4 5 6])}
 // → [[1,4],[2,5],[3,6],[null,null]]    (zip with padding)
@@ -511,4 +549,4 @@ vars = {
 
 ## More
 
-These examples come from the project's Vitest suite in `tests/engine.test.js`. For additional cases — matrix operations, deep snippets, multi-list function composition — see the test file directly or the design docs at [`kb/plans/loom-docs`](../../../kb/plans/) in the Uniweb workspace repository.
+Additional cases — matrix operations, deep snippets, multi-list function composition — live in the test suite at `tests/engine.test.js` and `tests/plain/*.test.js`.

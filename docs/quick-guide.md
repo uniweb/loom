@@ -1,6 +1,6 @@
 # Loom Quick Guide
 
-A 10-minute tour of the features you'll use most often. Read [`basics.md`](./basics.md) first if you haven't — this guide assumes you know what placeholders and Polish notation are.
+A 10-minute tour of the features you'll use most often. Read [`basics.md`](./basics.md) first if you haven't — this guide assumes you know what placeholders and Plain form are.
 
 ## Setup
 
@@ -10,16 +10,14 @@ import { Loom } from '@uniweb/loom'
 const loom = new Loom()
 ```
 
-You create one `Loom` instance and reuse it. It holds the snippet library and custom function library (if you provide them in the constructor) and has two main methods:
+You create one `Loom` instance and reuse it. It holds your snippet library and any custom JavaScript functions, and has two main methods:
 
-- `loom.render(template, vars)` — finds every `{…}` in a string and evaluates each, returns resolved text
-- `loom.evaluateText(expr, vars)` — evaluates a single expression, returns any type (string, number, array, object, boolean)
+- `loom.render(template, vars)` — walks a template string, evaluates every `{…}`, returns resolved text
+- `loom.evaluateText(expr, vars)` — evaluates a single expression, returns any type
 
-The `vars` argument can be a function `(key) => value` or a plain object. Both work the same way.
+The `vars` argument is either a plain object or a `(key) => value` function — both work the same way.
 
-## Common building blocks
-
-### Variables and dot notation
+## Variables and dot notation
 
 ```js
 const data = {
@@ -39,218 +37,218 @@ const data = {
 {member.address.city}              // "Fredericton"
 ```
 
-### Join with separator
+Accessing a property on a list of maps gives you the list of that property:
 
-The first quoted string is the separator. Empty values are skipped:
+```js
+const data = {
+    publications: [
+        { title: 'A', year: 2020 },
+        { title: 'B', year: 2021 },
+    ],
+}
+```
+
+```
+{publications.title}               // ["A", "B"]
+```
+
+## Joining with a separator
+
+When the first token inside a placeholder is a quoted string, it's the separator:
 
 ```
 {', ' first_name family_name}
 // → "Diego, Macrini"
 
 {', ' member.address.city member.address.province country}
-// → "Fredericton, NB"    (country is missing, skipped)
+// → "Fredericton, NB"        (country missing, skipped)
 ```
 
-### Conditional join
+Empty values are dropped — no dangling separators.
 
-`+?` joins only if all referenced values are truthy. If anything is empty, the whole expression is empty:
+## Conditional join
+
+`+?` joins only if all referenced values are present. If any are empty, the whole expression is empty:
 
 ```
 {+? 'Dr. ' title}
-// → "Dr. Macrini"   (if title = "Macrini")
-// → ""              (if title is empty)
+// title = "Macrini"  → "Dr. Macrini"
+// title missing      → ""
 
-{+? '(' (", " affiliation department) ')'}
+{+? '(' (', ' affiliation department) ')'}
 // → "(Engineering, UNB)"   or   ""
 ```
 
-This is the most important idiom in Loom for writing templates that handle missing data gracefully.
+This is the single most important idiom in Loom for writing templates that handle missing data gracefully.
 
-## Formatting with `#`
+## SHOW and modifiers
 
-### Dates
-
-```js
-const data = { start_date: '2000/01/15' }
-```
+`SHOW` displays a value with optional modifiers. The modifiers can appear in any order:
 
 ```
-{# -date=full start_date}     // "Saturday, January 15, 2000"
-{# -date=long start_date}     // "January 15, 2000"
-{# -date=medium start_date}   // "Jan 15, 2000"
-{# -date=short start_date}    // "1/15/00"
-{# -date=y start_date}        // "2000"
-{# -date=ym start_date}       // "January 2000"
-{# -date=m start_date}        // "January"
+{SHOW publications.title WHERE refereed SORTED BY year DESCENDING JOINED BY ', '}
 ```
 
-### Numbers and currency
+The five main modifiers:
 
-```js
-const data = { price: 1200 }
-```
+| Modifier | What it does |
+|---|---|
+| `WHERE` (or trailing `IF`) | Filter a list by condition |
+| `SORTED BY … ASCENDING`/`DESCENDING` | Sort a list |
+| `JOINED BY 'sep'` | Custom separator when rendering |
+| `AS format` | Format the value |
+| `WITH LABEL` | Prepend a localized label |
 
-```
-{# -number price}             // "1,200"
-{# -currency=usd price}       // "$1,200.00"
-{# -currency=eur price}       // "€1,200.00"
-```
-
-### Lists
-
-When the value is a list, `#` formats each element:
-
-```js
-const data = { items: ['apple', 'banana', 'cherry'] }
-```
+### Sorting
 
 ```
-{# items}                     // "apple, banana, cherry"   (default -sep)
-{# -sep=' | ' items}          // "apple | banana | cherry"
+{SHOW items}                                 // plain display
+{SHOW items SORTED BY name}                  // ascending (default)
+{SHOW items SORTED BY name DESCENDING}       // descending
+{SHOW dates FROM HIGHEST TO LOWEST date}     // long form, same as DESCENDING
 ```
+
+### Filtering
+
+```
+{SHOW publications.title WHERE refereed}
+{SHOW publications.title WHERE year > 2020}
+{SHOW publications.title WHERE refereed AND year > 2020}
+{SHOW publications.title WHERE funded OR sponsored}
+{SHOW publications.title WHERE NOT draft}
+```
+
+Bare identifiers in the `WHERE` clause are automatically prefixed with the list root — `refereed` in the condition means `publications.refereed`. Drop into a `{…}` sub-expression if you need to reference a top-level variable from inside a filter.
+
+### Joining
+
+```
+{SHOW publications.title JOINED BY ', '}
+{SHOW publications.title JOINED BY ' • '}
+{SHOW publications.title JOINED BY '\n'}
+```
+
+### Formatting
+
+```
+{SHOW start_date AS long date}       // → "January 15, 2000"
+{SHOW start_date AS full date}       // → "Saturday, January 15, 2000"
+{SHOW start_date AS year only}       // → "2000"
+{SHOW price AS number}               // → "1,200"    (locale grouping)
+{SHOW members AS JSON}               // → JSON string
+```
+
+Supported format types: `date` (styles: `long`, `full`, `short`, `medium`, `year only`, `month only`), `number`, `JSON`, plus the specialized creators `currency`, `phone`, `address`, `email` (see the [language reference](./language.md#creators) for their object forms).
 
 ### Labels
 
-The `-label` flag prepends the localized field name:
-
 ```
-{# -label @price price}       // "Price: $1,200.00"
+{SHOW price WITH LABEL}              // uses the default label for price
+{SHOW price WITH LABEL 'Cost'}       // custom label
 ```
-
-This relies on your variable resolver providing a label when asked for `@price`. If you're not supplying labels, skip this flag.
 
 ## Conditionals
 
-### Ternary `?`
+### IF … OTHERWISE
 
 ```
-{? is_member "Member" "Guest"}
-{? (> age 18) "Adult" "Minor"}
-{? has_discount (* price 0.9) price}    // apply discount if eligible
+{IF is_member SHOW 'Member' OTHERWISE SHOW 'Guest'}
+{IF age >= 18 SHOW 'Adult' OTHERWISE SHOW 'Minor'}
 ```
 
-If the "else" value is omitted, the result is empty when the condition is false:
+Several shorter forms all compile to the same thing:
 
 ```
-{? is_premium "⭐ Premium"}
+{IF age >= 18 SHOW 'Adult' OTHERWISE 'Minor'}     // SHOW after OTHERWISE optional
+{IF age >= 18 THEN 'Adult' ELSE 'Minor'}          // SQL-style
+{IF age >= 18 'Adult' 'Minor'}                    // bare values
 ```
 
-### Multi-branch `??`, `???`
-
-Each extra `?` adds another condition slot:
+The `OTHERWISE` branch is optional. Without it, a false condition produces an empty string:
 
 ```
-{?? (> age 65) (> age 18) "Senior" "Adult" "Youth"}
-// age=70 → "Senior"
-// age=30 → "Adult"
-// age=10 → "Youth"
-
-{??? (> score 90) (> score 75) (> score 50) "A" "B" "C" "F"}
+{IF is_premium SHOW '⭐ Premium'}
 ```
 
-## Working with lists
+### Leading IF vs trailing IF
 
-### Sort
+There are two places `IF` can appear, and they mean different things:
 
-```
-{>> items}                // ascending
-{>> -desc items}          // descending
-{>> -date dates}          // sort as dates (Jan, Feb, Mar…)
-{>> -desc -date dates}    // newest first
-```
+- **Leading `IF`** — branching. `{IF condition SHOW A OTHERWISE SHOW B}` picks between two values.
+- **Trailing `IF`** — filter. `{SHOW list.property IF condition}` is a synonym for `WHERE` and keeps matching elements.
 
-### Filter using comparison
+Use `IF` at the start when you're branching and at the end when you're filtering.
 
-Most comparison operators work on lists element-by-element:
+### Multi-branch
 
-```js
-const data = { ages: [12, 25, 67, 30, 18] }
-```
+For more than two branches, drop into Compact form (covered below) with `??` / `???`:
 
 ```
-{> ages 18}               // [false, true, true, true, false]
-{? (> ages 18) ages}      // [null, 25, 67, 30, null]
+{??? (> age 65) (> age 18) (> age 13) 'Senior' 'Adult' 'Teen' 'Child'}
 ```
 
-### Aggregate
+## Aggregation
+
+Four verbs that collapse a list to a single value:
 
 ```
-{++ prices}               // sum of all prices
-{++!! completed_tasks}    // count of truthy values
-{|>> grades}              // minimum (first truthy after sort)
-{&>> grades}              // maximum (last truthy after sort)
+{TOTAL OF grants.amount}                     // sum of all amounts
+{SUM OF grants.amount}                       // same as TOTAL OF
+{AVERAGE OF grants.amount}                   // mean
+{COUNT OF publications}                      // how many publications
+{COUNT OF publications WHERE refereed}       // how many refereed
 ```
 
-### Picking fields from a list of maps
-
-```js
-const data = {
-    people: [
-        { name: 'Alice', age: 30, email: 'a@x.com' },
-        { name: 'Bob', age: 25, email: 'b@x.com' },
-    ],
-}
-```
-
-Dot notation gives you the field from every element:
+All four accept `WHERE`, `AS`, and `WITH LABEL`:
 
 ```
-{people.name}             // ["Alice", "Bob"]
+{TOTAL OF grants.amount WHERE active AS currency USD}
+{COUNT OF publications WHERE year > 2020 WITH LABEL 'Recent'}
 ```
 
-For more control, use the `.` accessor function:
+The `WHERE` on `SUM`, `TOTAL`, and `AVERAGE` filters the source list before aggregating — `SUM OF grants.amount WHERE active` is the sum of active-grant amounts.
+
+## Composition in a single expression
+
+Modifiers chain naturally in whichever order reads best:
 
 ```
-{. 'name' people}                            // ["Alice", "Bob"]
-{. ['name' 'age'] people}                    // pick two fields
-{. {name: 'n', age: 'a'} people}             // pick + rename
+{SHOW publications.title WHERE refereed AND year > 2020
+    SORTED BY year DESCENDING JOINED BY ', '}
 ```
 
-## Math
+The translator applies modifiers in a canonical order internally (filter → sort → join → format → label), so surface order is a readability choice, not a semantic one.
 
-```
-{+ 2 3}                   // 5
-{+ price tax}             // sum of two variables
-{- total discount}        // subtraction
-{* quantity unit_price}   // multiplication
-{/ total count}           // average
-```
+## Snippets
 
-List arithmetic works element-by-element:
-
-```
-{+ prices 10}             // add 10 to each price
-{* prices 1.13}           // apply 13% tax to each
-```
-
-## Snippets (reusable expressions)
-
-Define your own reusable functions by passing snippet definitions to the constructor:
+Define reusable patterns and pass them to the constructor:
 
 ```js
 const loom = new Loom(`
-    [greet name]         { Hello, {name}! }
-    [fullName first last] { {first} {last} }
-    [currency amount]    { {# -currency=usd amount} }
-    [xor a b]            (& (| a b) (! (& a b)))
+    [greet name]           { Hello, {name}! }
+    [fullName first last]  { {first} {last} }
+    [recent pubs]          ( SHOW pubs.title WHERE year > 2020 )
+    [countRefereed pubs]   ( COUNT OF pubs WHERE refereed )
 `)
 ```
-
-Snippets in `{ … }` are **text templates** — they're evaluated with `render()`.
-Snippets in `( … )` are **expressions** — they're evaluated with `evaluateText()`.
 
 Use them like built-in functions:
 
 ```
 {greet "Alice"}                      // "Hello, Alice!"
 {fullName "Diego" "Macrini"}         // "Diego Macrini"
-{currency 1200}                      // "$1,200.00"
-{xor true false}                     // true
 ```
+
+Body conventions:
+
+- **`{ body }`** — text template, evaluated with `render()`
+- **`( body )`** — expression, evaluated with `evaluateText()`
+
+Snippet bodies accept Plain form, Compact form, or a mix.
 
 ## Custom JavaScript functions
 
-For operations Loom's standard library doesn't cover, pass a map of custom functions to the second constructor argument:
+For operations Loom's standard library doesn't cover, register custom functions in the second constructor argument:
 
 ```js
 const loom = new Loom({}, {
@@ -262,42 +260,57 @@ const loom = new Loom({}, {
     },
 })
 
-loom.evaluateText('uppercase "hello world"')  // → "HELLO WORLD"
-loom.evaluateText('slug "My Great Title"')    // → "my-great-title"
-loom.evaluateText('daysSince "2024-01-01"')   // → (some number)
+loom.evaluateText('uppercase "hello world"')   // → "HELLO WORLD"
+loom.evaluateText('slug "My Great Title"')     // → "my-great-title"
 ```
 
-Custom functions receive `(flags, ...args)`:
-- `flags` is the parsed flag object (e.g., `{date: true, format: 'long'}` from `-date -format=long`)
-- `args` are the positional arguments
+Custom functions receive `(flags, ...args)` — `flags` is the parsed flag bag from any `-name` or `-name=value` arguments, and `args` are the positional arguments.
+
+## Compact form — the symbolic shorthand
+
+Plain form covers the common cases. Loom has a second surface, **Compact form**, that uses Polish-notation operators. It's the same language — same evaluator, same semantics — just terser.
+
+```
+Plain:   {SHOW publications.title SORTED BY year DESCENDING JOINED BY ', '}
+Compact: {+: ', ' (>> -desc -by=year publications.title)}
+```
+
+A few Compact building blocks you'll see in examples:
+
+```
+{+ 2 3}                    // → 5
+{+ price 10}               // add 10 to price
+{+ prices 10}              // add 10 to each element of prices (list-aware)
+{? condition 'yes' 'no'}   // ternary
+{>> items}                 // sort ascending
+{>> -desc items}           // sort descending
+{++ prices}                // sum
+{++!! items}               // count of non-empty values
+{# -date=long start_date}  // format as date
+{# -currency=usd price}    // format as currency
+```
+
+You can mix the two forms freely. A nested `{…}` inside a Plain expression passes through as Compact form:
+
+```
+{SHOW {+? 'Dr. ' title} WITH LABEL 'Name'}
+```
+
+This is the clean way to reach for symbolic precision when Plain's verbs don't quite cover what you want.
+
+The [language reference](./language.md) documents both forms in full.
 
 ## Common idioms
 
-### Safe sentence construction
+### Graceful sentence construction
 
-Build a sentence where some parts may be missing, without getting broken grammar:
-
-```
-{+? 'Awarded in ' year}{+? ' by ' granting_body}{+? ', totaling ' (# -currency=usd amount)}.
-```
-
-Any missing field drops its own clause.
-
-### Group by in the surrounding language
-
-Loom doesn't have a `groupBy` built-in, but you can achieve it by combining standard-library functions with dot access:
+Build a sentence where some parts may be missing:
 
 ```
-Total {# -currency=usd (+ (. 'amount' grants))}
-from {# (. 'source' grants)} ({+!! grants} grants)
+{+? 'Awarded in ' year}{+? ' by ' granting_body}{+? ', totaling ' (TOTAL OF amounts)}.
 ```
 
-### Localized date range
-
-```
-{# -date=ymm (~ start_date end_date)}
-// → "January 2020 – December 2022"
-```
+Any missing field drops its own clause without breaking the grammar.
 
 ### Labeled field
 
@@ -306,8 +319,15 @@ from {# (. 'source' grants)} ({+!! grants} grants)
 // → "Address: 123 Main St"   (if both present, otherwise empty)
 ```
 
+### Localized date range
+
+```
+{SHOW (~ start_date end_date) AS ym date}
+// → "January 2020 – December 2022"
+```
+
 ## What's next
 
-- **[Language reference](./language.md)** — every function and every flag
+- **[Language reference](./language.md)** — every verb, every modifier, every function, every flag
 - **[Examples](./examples.md)** — worked examples organized by task
-- **[AI prompt](./ai-prompt.md)** — paste into an LLM chat to generate Loom expressions from plain English
+- **[AI prompt](./ai-prompt.md)** — paste into an LLM chat to generate Loom expressions from plain-English requirements
