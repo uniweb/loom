@@ -236,6 +236,62 @@ Recent refereed work:
 {SHOW publications.title WHERE refereed AND year > 2020 SORTED BY date DESCENDING JOINED BY '\n'}
 ```
 
+## Snippets
+
+Plain fully supports Loom's snippet system — you can write snippet bodies in Plain syntax, and both text-body (`{ ... }`) and expression-body (`( ... )`) forms work. Snippet bodies are translated to Loom once at construction time, so there's no per-call overhead.
+
+```js
+import { Plain } from '@uniweb/loom/plain'
+
+const plain = new Plain(`
+    [greet name] { Hello, {SHOW name}! }
+    [total grants] ( TOTAL OF grants.amount )
+    [refereedCount pubs] ( COUNT OF pubs WHERE refereed )
+    [recent pubs] ( SHOW pubs.title WHERE year > 2020 )
+`)
+```
+
+Because Plain is a strict superset of Loom, raw-Loom snippet bodies continue to work unchanged — useful when you want the brevity of Polish notation for a particular helper.
+
+### Calling snippets
+
+Inside a Plain template, call a snippet like any Loom function — an identifier followed by positional arguments:
+
+```
+{greet "Diego"}
+{bold (SHOW price AS currency USD)}
+```
+
+The second form passes a Plain sub-expression as an argument: the inner `SHOW ... AS currency USD` is translated to `(# -currency=usd price)` and handed to the `bold` snippet as a single formatted-value argument.
+
+### WHERE condition prefixing
+
+When a `WHERE` clause uses bare identifiers, Plain prefixes them with the list root so the condition evaluates per-element via Loom's list-awareness:
+
+```
+{SHOW publications.title WHERE refereed}
+```
+
+compiles to:
+
+```
+{? publications.refereed publications.title}
+```
+
+Both `refereed` in the condition and `year > 2020` get auto-prefixed. If you want to reference a *top-level* variable in a WHERE clause (not a property of the list being filtered), use the full dotted path — Plain leaves any already-dotted reference alone — or drop into a raw Loom `{…}` sub-expression.
+
+### Reserved keywords
+
+Plain keywords (`SHOW`, `IF`, `WHERE`, `SORTED BY`, `TOTAL OF`, etc.) are reserved across the whole language — including snippet names and parameter names. A snippet named `show` or a parameter named `count` would collide with the tokenizer's keyword recognition and wouldn't behave as expected. Use non-keyword names for snippets and their parameters. See the [reference table](#reference-translation-table) for the full list of reserved words.
+
+### Known limitations
+
+Two semantic caveats worth being aware of when mixing Plain features in snippet bodies:
+
+1. **WHERE combined with SORTED BY on a projected list.** `{SHOW pubs.title WHERE refereed SORTED BY date DESCENDING}` translates correctly, but the filtered list contains projected strings with no `date` property, so the sort produces string-order results, not date-order. For correct composition, sort the full object list first and project the title last — this is an underlying Loom constraint, not a Plain limitation. If this matters for your use case, use a raw Loom expression that sorts before projecting.
+
+2. **Dotted access on snippet parameters.** If a snippet takes a parameter named `items` and the body references `items.amount`, Loom's aux-variable lookup doesn't traverse dotted paths — it falls through to the outer resolver instead. The workaround is to match the parameter name to the outer variable name (so the outer resolver can serve the dotted path), or to use the explicit accessor form (`(. amount items)`). This is a pre-existing Loom behavior documented here because it affects Plain snippets too.
+
 ## Mixing Plain and Loom
 
 Plain is a strict superset of Loom. Any valid Loom expression is also valid Plain — the parser recognizes raw Loom forms and passes them through. This means you can mix the two styles freely in the same template:
@@ -282,8 +338,8 @@ Every Plain form compiles to a Loom expression. This table is the exhaustive tra
 | `{IF a SHOW b}` | `{? a b}` |
 | `{IF a SHOW b OTHERWISE SHOW c}` | `{? a b c}` |
 | `{IF a THEN b ELSE c}` | `{? a b c}` |
-| `{SHOW x IF y}` | `{? y x}` |
-| `{SHOW x WHERE y}` | `{? y x}` |
+| `{SHOW list.prop IF y}` | `{? list.y list.prop}` (bare `y` prefixed with list root) |
+| `{SHOW list.prop WHERE y}` | `{? list.y list.prop}` (bare `y` prefixed with list root) |
 | `{SHOW x SORTED BY y}` | `{>> -by=y x}` |
 | `{SHOW x SORTED BY y DESCENDING}` | `{>> -desc -by=y x}` |
 | `{SHOW x FROM LOWEST TO HIGHEST y}` | `{>> -by=y x}` |
@@ -292,8 +348,8 @@ Every Plain form compiles to a Loom expression. This table is the exhaustive tra
 | `{TOTAL OF x.y}` | `{++ x.y}` |
 | `{SUM OF x.y}` | `{++ x.y}` |
 | `{AVERAGE OF x.y}` | `{/ (++ x.y) (++!! x.y)}` |
-| `{COUNT OF x}` | `{++!! x}` |
-| `{COUNT OF x WHERE y}` | `{++!! (? y x)}` |
+| `{COUNT OF list}` | `{++!! list}` |
+| `{COUNT OF list WHERE y}` | `{++!! list.y}` (counts truthy values of the per-element condition) |
 
 Modifiers combine inside-out: filter → sort → join → format → label. For example:
 
@@ -304,10 +360,10 @@ Modifiers combine inside-out: filter → sort → join → format → label. For
 compiles to:
 
 ```
-{+: ', ' (>> -desc -by=date (? refereed publications.title))}
+{+: ', ' (>> -desc -by=date (? publications.refereed publications.title))}
 ```
 
-You can read the nesting from the inside out: start with `publications.title`, filter by `refereed`, sort by `date` descending, join with `', '`.
+You can read the nesting from the inside out: start with `publications.title`, filter by `publications.refereed` (the bare `refereed` in the source is auto-prefixed with the list root), sort by `date` descending, join with `', '`.
 
 ## API
 

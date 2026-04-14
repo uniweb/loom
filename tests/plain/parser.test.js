@@ -150,3 +150,69 @@ describe('plain parser — loom passthrough', () => {
         expect(ast.value).toEqual({ type: 'loom', value: '{+ 1 2}' })
     })
 })
+
+describe('plain parser — function calls', () => {
+    it('parses identifier followed by string as a function call', () => {
+        const ast = P('greet "Diego"')
+        expect(ast).toEqual({
+            type: 'call',
+            name: 'greet',
+            args: [{ type: 'string', value: 'Diego' }],
+        })
+    })
+
+    it('parses multi-arg function call', () => {
+        const ast = P('fullname "Diego" "Macrini"')
+        expect(ast.type).toBe('call')
+        expect(ast.args).toHaveLength(2)
+    })
+
+    it('parses bare identifier as a variable, not a call', () => {
+        // No trailing value → not a call, just a bare value.
+        const ast = P('greet')
+        expect(ast.type).toBe('show')
+        expect(ast.value).toEqual({ type: 'var', path: 'greet' })
+    })
+
+    it('parses identifier + WITH LABEL as implicit SHOW, not a call', () => {
+        // Trailing token is a keyword, not a value → not a call.
+        const ast = P('greet WITH LABEL')
+        expect(ast.type).toBe('show')
+        expect(ast.value).toEqual({ type: 'var', path: 'greet' })
+        expect(ast.modifiers).toEqual([{ type: 'withLabel', label: null }])
+    })
+
+    it('parses nested Plain inside function args via grouping', () => {
+        const ast = P('bold (SHOW price AS currency USD)')
+        expect(ast.type).toBe('call')
+        expect(ast.name).toBe('bold')
+        expect(ast.args).toHaveLength(1)
+        // The arg is a group wrapping a show node with an AS modifier.
+        const arg = ast.args[0]
+        expect(arg.type).toBe('group')
+        expect(arg.inner.type).toBe('show')
+        expect(arg.inner.modifiers[0]).toEqual({
+            type: 'as',
+            format: { type: 'currency', value: 'usd' },
+        })
+    })
+
+    it('function call can take trailing modifiers', () => {
+        const ast = P('recentList SORTED BY date DESCENDING')
+        // `recentList` has no arg values following, so it's a bare var,
+        // not a call. Trailing modifier applies to the var.
+        expect(ast.type).toBe('show')
+        expect(ast.value).toEqual({ type: 'var', path: 'recentList' })
+        expect(ast.modifiers).toHaveLength(1)
+    })
+
+    it('function call with arg + modifier', () => {
+        const ast = P('filter items SORTED BY date')
+        // call(filter, [items]) then trailing SORTED BY → wrapped in show.
+        expect(ast.type).toBe('show')
+        expect(ast.value.type).toBe('call')
+        expect(ast.value.name).toBe('filter')
+        expect(ast.modifiers).toHaveLength(1)
+        expect(ast.modifiers[0].type).toBe('sortedBy')
+    })
+})

@@ -51,6 +51,8 @@ function nested(node) {
             const v = nested(node.value)
             return `(/ (++ ${v}) (++!! ${v}))`
         }
+        case 'call':
+            return translateCall(node)
         case 'forEach':
             return translateForEach(node)
         default:
@@ -58,14 +60,27 @@ function nested(node) {
     }
 }
 
+function translateCall(node) {
+    if (node.args.length === 0) return node.name
+    const args = node.args.map(nested).join(' ')
+    return `(${node.name} ${args})`
+}
+
 function translateShow(node) {
     let expr = nested(node.value)
+    // The "list root" is the prefix path used to scope bare identifiers
+    // in WHERE conditions. For `SHOW pubs.title WHERE refereed`, the root
+    // is `pubs`, and `refereed` gets rewritten to `pubs.refereed` so the
+    // condition evaluates per-element via Loom's list-awareness.
+    const listRoot = extractListRoot(node.value)
 
     for (const mod of node.modifiers) {
         switch (mod.type) {
-            case 'where':
-                expr = `(? ${nested(mod.condition)} ${expr})`
+            case 'where': {
+                const cond = nested(prefixBareVars(mod.condition, listRoot))
+                expr = `(? ${cond} ${expr})`
                 break
+            }
             case 'sortedBy': {
                 const prop = extractProp(mod.value)
                 const descFlag = mod.order === 'desc' ? '-desc ' : ''
@@ -101,11 +116,69 @@ function translateIf(node) {
 }
 
 function translateCount(node) {
-    const value = nested(node.value)
     if (node.where != null) {
-        return `(++!! (? ${nested(node.where)} ${value}))`
+        // Count truthy values of the per-element condition list. For
+        // `COUNT OF pubs WHERE refereed`, this produces `++!! pubs.refereed`
+        // which is cheaper and more idiomatic than filtering first.
+        const listRoot = extractListRoot(node.value)
+        const cond = nested(prefixBareVars(node.where, listRoot))
+        return `(++!! ${cond})`
     }
-    return `(++!! ${value})`
+    return `(++!! ${nested(node.value)})`
+}
+
+/**
+ * Return the list-root path for a value node, used to prefix bare
+ * identifiers in a WHERE condition. For `pubs.title` → `pubs`; for
+ * `user.publications.title` → `user.publications`; for a bare `pubs` or
+ * any non-variable value → the value's own path (or null).
+ */
+function extractListRoot(node) {
+    if (node == null) return null
+    if (node.type === 'var') {
+        const parts = node.path.split('.')
+        if (parts.length > 1) return parts.slice(0, -1).join('.')
+        return node.path
+    }
+    if (node.type === 'group') return extractListRoot(node.inner)
+    return null
+}
+
+/**
+ * Walk a condition AST and prefix bare variable references with the list
+ * root so the condition evaluates per-element. A var that already starts
+ * with the prefix, already contains a dot, or refers to a literal like
+ * `true`/`false`/`null` is left alone.
+ *
+ * This is a *conservative* rewrite: it assumes bare identifiers in a
+ * WHERE clause are properties of the list being filtered. Users who need
+ * to reference a top-level scalar in a WHERE should write the full dotted
+ * path or fall back to a raw Loom `{…}` expression.
+ */
+function prefixBareVars(node, prefix) {
+    if (node == null || !prefix) return node
+    switch (node.type) {
+        case 'var': {
+            const path = node.path
+            if (path.startsWith(prefix + '.') || path === prefix) return node
+            if (path.includes('.')) return node
+            if (path === 'true' || path === 'false' || path === 'null') return node
+            if (path.startsWith('@') || path.startsWith('$')) return node
+            return { type: 'var', path: `${prefix}.${path}` }
+        }
+        case 'binop':
+            return {
+                ...node,
+                left: prefixBareVars(node.left, prefix),
+                right: prefixBareVars(node.right, prefix),
+            }
+        case 'unop':
+            return { ...node, arg: prefixBareVars(node.arg, prefix) }
+        case 'group':
+            return { ...node, inner: prefixBareVars(node.inner, prefix) }
+        default:
+            return node
+    }
 }
 
 function translateForEach(node) {
