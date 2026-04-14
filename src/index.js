@@ -1,26 +1,35 @@
 /**
- * @uniweb/loom — An expression language for weaving data into text.
+ * @uniweb/loom — an expression language for weaving data into text.
  *
- * Loom has two modes:
+ * Loom is one language with two surface forms:
+ *
+ *   - Plain form (default): natural-language syntax that reads like a
+ *     description of what you want.
+ *
+ *       {SHOW publications.title WHERE refereed SORTED BY date DESCENDING}
+ *
+ *   - Compact form: symbolic Polish-notation for power users. Equivalent
+ *     to Plain form; you can mix the two freely in the same template.
+ *
+ *       {+: ', ' (>> -desc -by=date (? refereed publications.title))}
+ *
+ * Usage:
  *
  *   import { Loom } from '@uniweb/loom'
  *
  *   const loom = new Loom()
+ *   loom.render("Hello {first_name}!", { first_name: 'Diego' })
+ *   // → "Hello Diego!"
  *
- *   // Text with placeholders
- *   loom.render("Hello {first_name} {family_name}", key => profile[key])
- *   // → "Hello Diego Macrini"
+ *   loom.evaluateText("COUNT OF publications WHERE refereed", profile)
+ *   // → 2
  *
- *   // Single expression, any return type
- *   loom.evaluateText("personal_info/education", key => profile.getValue(key))
- *   // → [{degree: "PhD", ...}, ...]
+ * For the raw symbolic engine without the Plain parser, import LoomCore
+ * from `@uniweb/loom/core`.
  *
- * Domain-neutral: no React, no Uniweb assumptions, no citations, no
- * templates-for-websites. Just a small Polish-notation expression language
- * with a rich standard library (sort, filter, aggregate, format, join,
- * compare, branch) and a snippet system for user-defined functions.
+ * Pure JavaScript. Zero runtime dependencies. Works in Node and the browser.
  */
 
 export { default as Loom } from './engine.js'
-export { findEnclosures, parseSnippets } from './tokenizer.js'
-export { setLocale, getProperty } from './functions.js'
+export { findEnclosures, parseSnippets } from './core/tokenizer.js'
+export { setLocale, getProperty } from './core/functions.js'

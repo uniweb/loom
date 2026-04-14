@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { Plain } from '../../src/plain/index.js'
+import { Loom } from '../../src/index.js'
 
 function getPath(key, vars) {
     const parts = key.split('.')
@@ -26,13 +26,13 @@ function getPath(key, vars) {
 
 describe('plain snippets — text bodies', () => {
     it('text-body snippet with a bare {var} placeholder', () => {
-        const plain = new Plain('[greet name] { Hello, {name}! }')
+        const plain = new Loom('[greet name] { Hello, {name}! }')
         const result = plain.render('{greet "Diego"}', () => undefined)
         expect(result.trim()).toBe('Hello, Diego!')
     })
 
     it('text-body snippet with explicit Plain SHOW', () => {
-        const plain = new Plain('[greet name] { Hello, {SHOW name}! }')
+        const plain = new Loom('[greet name] { Hello, {SHOW name}! }')
         const result = plain.render('{greet "Diego"}', () => undefined)
         expect(result.trim()).toBe('Hello, Diego!')
     })
@@ -41,13 +41,13 @@ describe('plain snippets — text bodies', () => {
         // Loom's label formatter renders via XML-like group tags; this
         // test just confirms the Plain body `{SHOW value WITH LABEL}`
         // translates correctly to `{# -label value}` and Loom accepts it.
-        const plain = new Plain('[labeled value] { {SHOW value WITH LABEL} }')
+        const plain = new Loom('[labeled value] { {SHOW value WITH LABEL} }')
         const result = plain.render('{labeled "cost"}', () => undefined)
         expect(result).toContain('cost')
     })
 
     it('text-body snippet mixing Plain and raw Loom', () => {
-        const plain = new Plain(
+        const plain = new Loom(
             '[row a b] { {SHOW a} = {+ b 1} }'
         )
         const result = plain.render('{row "x" 10}', () => undefined)
@@ -57,7 +57,7 @@ describe('plain snippets — text bodies', () => {
 
 describe('plain snippets — expression bodies', () => {
     it('expression-body snippet with a Plain aggregation verb', () => {
-        const plain = new Plain('[total grants] ( TOTAL OF grants.amount )')
+        const plain = new Loom('[total grants] ( TOTAL OF grants.amount )')
         const vars = {
             grants: [{ amount: 100 }, { amount: 200 }, { amount: 300 }],
         }
@@ -67,7 +67,7 @@ describe('plain snippets — expression bodies', () => {
     })
 
     it('expression-body snippet with COUNT OF ... WHERE', () => {
-        const plain = new Plain(
+        const plain = new Loom(
             '[countRefereed pubs] ( COUNT OF pubs WHERE refereed )'
         )
         const vars = {
@@ -93,7 +93,7 @@ describe('plain snippets — expression bodies', () => {
         // traverse dotted paths — `pubs.title` resolves via the outer
         // resolver, not the aux binding. A separate snippet arg name
         // (e.g., `items`) would fail with the current Loom semantics.
-        const plain = new Plain(
+        const plain = new Loom(
             '[recent pubs] ( SHOW pubs.title WHERE year > 2020 )'
         )
         const vars = {
@@ -112,7 +112,7 @@ describe('plain snippets — expression bodies', () => {
 
 describe('plain snippets — snippet calling snippet', () => {
     it('one snippet can call another Plain snippet', () => {
-        const plain = new Plain(`
+        const plain = new Loom(`
             [double n] (* n 2)
             [quadruple n] ( double (double n) )
         `)
@@ -125,7 +125,7 @@ describe('plain snippets — snippet calling snippet', () => {
         // so `items.amount` wouldn't resolve when `items` is a snippet
         // parameter. Flat lists work because `items` resolves as a whole
         // list to `++`.
-        const plain = new Plain(`
+        const plain = new Loom(`
             [sumAll items] ( TOTAL OF items )
             [report items] { Total: {sumAll items} }
         `)
@@ -137,7 +137,7 @@ describe('plain snippets — snippet calling snippet', () => {
 
 describe('plain snippets — Plain at snippet call site', () => {
     it('passes a Plain sub-expression as a snippet argument', () => {
-        const plain = new Plain('[bold text] { <b>{text}</b> }')
+        const plain = new Loom('[bold text] { <b>{text}</b> }')
         const vars = { price: 99 }
         const result = plain.render(
             '{bold (SHOW price AS currency USD)}',
@@ -155,7 +155,7 @@ describe('plain snippets — backwards compatibility', () => {
     it('raw Loom snippet body still works', () => {
         // No Plain syntax — body is pure Loom. Translation should leave
         // it functionally unchanged.
-        const plain = new Plain('[sumPlus grants] ( + (++ grants.amount) 1 )')
+        const plain = new Loom('[sumPlus grants] ( + (++ grants.amount) 1 )')
         const vars = {
             grants: [{ amount: 100 }, { amount: 200 }],
         }
@@ -165,7 +165,7 @@ describe('plain snippets — backwards compatibility', () => {
     })
 
     it('accepts object-shape snippets with raw Loom body', () => {
-        const plain = new Plain({
+        const plain = new Loom({
             greet: {
                 args: ['name'],
                 body: 'Hello, {name}!',
@@ -178,7 +178,7 @@ describe('plain snippets — backwards compatibility', () => {
     })
 
     it('accepts object-shape snippets with Plain body (translated eagerly)', () => {
-        const plain = new Plain({
+        const plain = new Loom({
             greet: {
                 args: ['name'],
                 body: 'Hello, {SHOW name WITH LABEL}!',
@@ -196,7 +196,7 @@ describe('plain snippets — backwards compatibility', () => {
 
     it('preserves pre-built function snippets', () => {
         const greetFn = (flags, args) => `Custom: ${args[0]}`
-        const plain = new Plain({ greet: greetFn })
+        const plain = new Loom({ greet: greetFn })
         const result = plain.render('{greet "Diego"}', () => undefined)
         expect(result).toBe('Custom: Diego')
     })

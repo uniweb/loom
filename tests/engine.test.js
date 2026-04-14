@@ -7,7 +7,7 @@
  * Each test group corresponds to a legacy test file.
  */
 import { describe, it, expect } from 'vitest'
-import { Loom } from '../src/index.js'
+import { LoomCore } from '../src/core/index.js'
 
 /**
  * Helper: render a template with a flat variables object.
@@ -15,13 +15,13 @@ import { Loom } from '../src/index.js'
  * (the legacy runner does `result.replace(/\n+/g, ' ')`).
  */
 function run(template, variables = {}) {
-    const engine = new Loom()
+    const engine = new LoomCore()
     const result = engine.render(template, (key) => variables[key])
     return result.replace(/\n+/g, ' ').trim()
 }
 
 function evaluate(expr, variables = {}) {
-    const engine = new Loom()
+    const engine = new LoomCore()
     return engine.evaluateText(expr, (key) => variables[key])
 }
 
@@ -158,7 +158,7 @@ describe('variables', () => {
         const vars = {
             person: { name: 'Diego', age: 30 },
         }
-        const engine = new Loom()
+        const engine = new LoomCore()
         const result = engine.evaluateText('. 0 items', (key) => {
             if (key === 'items') return [{ name: 'first' }, { name: 'second' }]
             return undefined
@@ -167,7 +167,7 @@ describe('variables', () => {
     })
 
     it('@ prefix returns variable label', () => {
-        const engine = new Loom()
+        const engine = new LoomCore()
         const result = engine.evaluateText('@family_name', (key) => {
             if (key === '@family_name') return 'Family Name'
             return undefined
@@ -299,7 +299,7 @@ describe('logical', () => {
 
 describe('snippets', () => {
     it('user-defined snippet with args', () => {
-        const engine = new Loom(
+        const engine = new LoomCore(
             '[greet name] { Hello, {name}! }'
         )
         // Snippets need variables set — pass a dummy resolver
@@ -308,7 +308,7 @@ describe('snippets', () => {
     })
 
     it('snippet with multiple args', () => {
-        const engine = new Loom(
+        const engine = new LoomCore(
             '[fullname first last] { {first} {last} }'
         )
         const result = engine.render('{fullname "Diego" "Macrini"}', () => undefined)
@@ -316,7 +316,7 @@ describe('snippets', () => {
     })
 
     it('no-argument snippet renders constant text', () => {
-        const engine = new Loom('[motto] { Per aspera ad astra. }')
+        const engine = new LoomCore('[motto] { Per aspera ad astra. }')
         const result = engine.render('{motto}', () => undefined)
         expect(result.trim()).toBe('Per aspera ad astra.')
     })
@@ -324,21 +324,21 @@ describe('snippets', () => {
     it('expression-body snippet evaluates with (...)', () => {
         // `[name ...] ( expr )` — body is a single expression, not a text
         // template. Evaluated via evaluateText and returns a typed value.
-        const engine = new Loom('[triple n] (* n 3)')
+        const engine = new LoomCore('[triple n] (* n 3)')
         const none = () => undefined
         expect(engine.evaluateText('triple 7', none)).toBe(21)
         expect(engine.evaluateText('triple 0', none)).toBe(0)
     })
 
     it('variadic ...args captures remaining arguments as a list', () => {
-        const engine = new Loom('[joinAll ...items] (+: ", " items)')
+        const engine = new LoomCore('[joinAll ...items] (+: ", " items)')
         const none = () => undefined
         expect(engine.evaluateText('joinAll "a" "b" "c"', none)).toBe('a, b, c')
         expect(engine.evaluateText('joinAll "solo"', none)).toBe('solo')
     })
 
     it('snippet calling another snippet composes correctly', () => {
-        const engine = new Loom(`
+        const engine = new LoomCore(`
             [double n] (* n 2)
             [quadruple n] (double (double n))
         `)
@@ -348,7 +348,7 @@ describe('snippets', () => {
     it('snippet body can reference outer resolver variables', () => {
         // Args take precedence but undefined args fall through to the outer
         // resolver, so snippets can pull in ambient context.
-        const engine = new Loom('[greet name] { Hello, {name}, from {city}! }')
+        const engine = new LoomCore('[greet name] { Hello, {name}, from {city}! }')
         const vars = { city: 'Fredericton' }
         const result = engine.render('{greet "Diego"}', (k) => vars[k])
         expect(result.trim()).toBe('Hello, Diego, from Fredericton!')
@@ -359,7 +359,7 @@ describe('snippets', () => {
         // flag bag. It cannot appear alone in a placeholder — the language
         // reference notes you must use it inside a function call like
         // `(# -json $0)`.
-        const engine = new Loom(
+        const engine = new LoomCore(
             '[fancy $0 title] { Title: {title} Flags: {# -json $0} }'
         )
         const result = engine.render(
@@ -377,7 +377,7 @@ describe('snippets', () => {
         // shape (args, body, isText, hasFlags). Useful when the snippet
         // library is generated programmatically rather than authored as
         // source text.
-        const engine = new Loom({
+        const engine = new LoomCore({
             greet: {
                 args: ['name'],
                 body: 'Hello, {name}!',
@@ -445,7 +445,7 @@ describe('collectors', () => {
         // formatted every subsequent string as empty — the placeholder
         // rendered as ', , ' instead of 'New, Mid'. Fixed by letting
         // single-list args reach formatList, which drops falsy items.
-        const engine = new Loom()
+        const engine = new LoomCore()
         const result = engine
             .render('{? (> pubs.year 2020) pubs.title}', {
                 pubs: [

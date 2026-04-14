@@ -1,5 +1,7 @@
 # Plain
 
+> **Note (2026-04):** Plain form is now the default surface for `@uniweb/loom`. The separate `@uniweb/loom/plain` subpath has been removed — import `Loom` from `@uniweb/loom` and you get Plain form out of the box. See the top-level [`README.md`](../README.md) for the current API. This reference document still uses the old `Plain` class name in its examples and imports; treat it as a syntax reference while it waits for a full rewrite. Wherever you see `new Plain(...)`, read it as `new Loom(...)` from `@uniweb/loom`.
+
 **Plain** is a natural-language layer on top of Loom. It lets you write template expressions in English-like phrases that compile to Loom's Polish notation at parse time.
 
 Where Loom is compact and symbolic:

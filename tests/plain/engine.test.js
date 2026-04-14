@@ -8,15 +8,15 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { Plain } from '../../src/plain/index.js'
+import { Loom } from '../../src/index.js'
 
 function render(template, vars = {}) {
-    const plain = new Plain()
+    const plain = new Loom()
     return plain.render(template, (key) => getPath(key, vars))
 }
 
 function evaluate(expr, vars = {}) {
-    const plain = new Plain()
+    const plain = new Loom()
     return plain.evaluateText(expr, (key) => getPath(key, vars))
 }
 

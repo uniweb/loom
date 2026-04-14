@@ -1,6 +1,6 @@
 # @uniweb/loom
 
-A small expression language for **weaving data into text**. Polish-notation syntax, a standard library of ~80 functions (sort, filter, aggregate, format, join, compare, branch), user-defined snippets, and a two-mode API: string templating *and* typed expression evaluation.
+An expression language for weaving live data into text. Loom lets you filter, sort, aggregate, format, and localize data inline — a single placeholder can produce a sentence, a list, a sum, or a formatted date range, all resolved from the same data source.
 
 Pure JavaScript. Zero runtime dependencies. Works in Node and the browser.
 
@@ -8,16 +8,25 @@ Pure JavaScript. Zero runtime dependencies. Works in Node and the browser.
 npm install @uniweb/loom
 ```
 
-## Why another template engine?
+## What Loom is for
 
-Most template engines (Handlebars, Mustache, Liquid, EJS) are designed for HTML output: strings in, strings out, with a handful of helpers. Loom targets a different problem: **expressing small data transformations in human-authorable text.** You're writing a CV template, an invoice format, a research report — and you need to join fields, format dates, sort lists, filter by condition, and aggregate values. All of that, inline, without escaping into a separate JavaScript file for every small operation.
+Every template engine handles `Hello {name}`. Where Loom earns its keep is when the other side of the placeholder isn't a string — it's a list of publications, a set of grants, a tree of addresses, a collection of section headings. Loom was built for reports where the hard part is "format this date range, drop the clause if either end is missing, and localize the field label" — all in one line.
 
-Loom handles both:
+**Loom is to templates what SQL is to data.** A developer writes the template; non-technical authors read and validate the business logic expressed in it, and often adjust it over time without needing a developer to re-ship. SQL is a language developers write but analysts can read and edit; Loom is the same, applied to text generation instead of queries.
 
-- **Text with placeholders** (the template-engine half): `"Hello {first_name} {family_name}"` → resolved string
-- **Pure expressions** (the mini-language half): `"{>> -desc date items}"` → a sorted array, not a string
+Concretely, a single Loom expression can:
 
-The two halves share a syntax, a standard library, and a variable model. You can write simple substitutions when that's all you need, and reach for the full expression language when you need more.
+- Reach into nested data with dot paths (`{publications.title}`)
+- Filter a list by condition (`{SHOW publications.title WHERE refereed}`)
+- Sort it (`SORTED BY date DESCENDING`)
+- Join it with a separator (`JOINED BY ', '`)
+- Format each element (`AS long date`, `AS currency USD`, `AS phone`)
+- Aggregate (`{TOTAL OF grants.amount}`, `{COUNT OF publications WHERE refereed}`)
+- Compose all of the above in a single placeholder
+
+When data is missing, the enclosing clause quietly drops — no dangling commas, no `"Dr. undefined"`, no broken grammar. Operations apply element-by-element to lists by default, so you rarely write an explicit loop.
+
+Loom runs entirely in the browser or in Node. No backend, no build step, no templating server. You instantiate it once and call `render()` or `evaluateText()`.
 
 ## Quick start
 
@@ -25,113 +34,157 @@ The two halves share a syntax, a standard library, and a variable model. You can
 import { Loom } from '@uniweb/loom'
 
 const loom = new Loom()
+
+loom.render('Hello {name}!', { name: 'Diego' })
+// → "Hello Diego!"
+```
+
+And a realistic one:
+
+```js
 const profile = {
     first_name: 'Diego',
     family_name: 'Macrini',
-    city: 'Fredericton',
-    province: 'NB',
-    country: 'Canada',
+    publications: [
+        { title: 'Cellular Bio', year: 2018, refereed: true },
+        { title: 'Forestry', year: 2022, refereed: false },
+        { title: 'Hydrology', year: 2023, refereed: true },
+    ],
 }
 
-// Text with {placeholders}
-loom.render('Hello {first_name} {family_name}', (key) => profile[key])
-// → "Hello Diego Macrini"
+loom.render(
+    'Hello {first_name}! You have {COUNT OF publications} publications, ' +
+        '{COUNT OF publications WHERE refereed} of them refereed.',
+    profile
+)
+// → "Hello Diego! You have 3 publications, 2 of them refereed."
 
-// Join with separator — a literal string as the first token becomes the separator
-loom.render("{', ' city province country}", (key) => profile[key])
-// → "Fredericton, NB, Canada"
-
-// Conditional join — drops everything if any referenced value is empty
-loom.render("{+? 'Dr. ' title}", (key) => ({ title: 'Macrini' })[key])
-// → "Dr. Macrini"
-
-loom.render("{+? 'Dr. ' title}", () => undefined)
-// → ""  (title missing, whole expression resolves to empty)
+loom.render(
+    'Recent refereed work: ' +
+        '{SHOW publications.title WHERE refereed SORTED BY year DESCENDING JOINED BY ", "}.',
+    profile
+)
+// → "Recent refereed work: Hydrology, Cellular Bio."
 ```
 
-## Two modes
+## Two methods
 
-### `render(template, vars)` — text with placeholders
+A Loom instance has two main methods:
 
-Finds every `{…}` in a string, evaluates each, returns the resolved text.
+- **`loom.render(template, vars)`** — walks a template string, evaluates every `{…}` placeholder, returns the resolved text.
+- **`loom.evaluateText(expression, vars)`** — evaluates a single expression and returns any type. Use this when you want the data itself (an array, a number, a boolean) rather than a string.
 
 ```js
-loom.render('Report for {first_name} {family_name}', (k) => profile[k])
+loom.evaluateText('COUNT OF publications WHERE refereed', profile)
+// → 2    (a number, not a string)
+
+loom.evaluateText('SHOW publications.title SORTED BY year DESCENDING', profile)
+// → ['Hydrology', 'Forestry', 'Cellular Bio']
 ```
 
-The variable resolver can be a function `(key) => value` or a plain object. Both shapes are supported.
+The `vars` argument can be a plain object or a `(key) => value` resolver function.
 
-### `evaluateText(expr, vars?)` — typed expression evaluation
+## Two surface forms
 
-Evaluates a single expression and returns any type — number, boolean, string, array, object. Useful for data selection, filtering, sorting, and aggregation pipelines where you want the result as data, not text.
+Loom is one language with two surface forms: **Plain form** (natural-language, the default) and **Compact form** (symbolic, power-user). Both parse to the same internal representation and run on the same evaluator.
 
-```js
-loom.evaluateText('+ 1 2')                    // → 3
-loom.evaluateText('> 5 3')                    // → true
-loom.evaluateText('? true "yes" "no"')        // → "yes"
-loom.evaluateText('>> 2 1 3')                 // → [1, 2, 3]
-loom.evaluateText('>> -desc 2 1 3')           // → [3, 2, 1]
-loom.evaluateText('++ 1 2 3')                 // → 6
+**Plain form** reads like a description of what you want:
 
-// With variables
-const data = { items: ['apple', 'banana', 'cherry'] }
-loom.evaluateText('items', (k) => data[k])    // → ['apple', 'banana', 'cherry']
+```
+{SHOW publications.title WHERE refereed SORTED BY date DESCENDING JOINED BY ', '}
+{TOTAL OF grants.amount AS currency USD}
+{IF age >= 18 SHOW 'Adult' OTHERWISE SHOW 'Minor'}
 ```
 
-## Syntax at a glance
+**Compact form** is terser and uses Polish-notation operators. It's the symbolic equivalent of Plain form, and you can write it directly when you want less ceremony:
 
-Loom uses **Polish notation** — the function token comes first, arguments follow. A literal string as the first token is shorthand for "join with this separator."
+```
+{+: ', ' (>> -desc -by=date (? refereed publications.title))}
+{# -currency=usd (++ grants.amount)}
+{? (>= age 18) 'Adult' 'Minor'}
+```
 
-| Form | Meaning |
-|---|---|
-| `{name}` | Variable substitution |
-| `{@name}` | Variable label (e.g., `"Family Name"` for key `family_name`) |
-| `{', ' a b c}` | Join with separator: `"A, B, C"` |
-| `{+ a b c}` | Concatenate |
-| `{? cond yes no}` | Ternary conditional |
-| `{+? prefix value}` | Conditional join — drops if any value is empty |
-| `{# -date=y value}` | Universal formatter with flags |
-| `{>> items}` | Sort ascending |
-| `{>> -desc items}` | Sort descending |
-| `{++ items}` | Aggregate (sum for numbers, concat for strings) |
-| `{(. 0 items)}` | Nested expression — index access into `items` |
+You can mix the two freely. A nested `{…}` inside a Plain-form expression passes through as Compact form, which is the clean way to reach for symbolic precision inside an otherwise natural-language template:
 
-### Functions by category
+```
+{SHOW {+? 'Dr. ' title} WITH LABEL 'Name'}
+```
 
-- **Accessor** (`.`) — property access, dot-path traversal
-- **Creator** (`^`, `~`, `\`, `@`, `<>`, `phone`, `address`, `currency`, `email`, …) — construct specialized values
-- **Collector** (`++`, `++!!`) — sum, concat, count non-empty
-- **Filter** (`&`, `|`, `|=`, `|?`, `&?`, `+?`) — boolean logic, membership, conditional join
-- **Formatter** (`#`, `!`, `!!`) — universal format (dates, numbers, lists, JSON), negation
-- **Mapper** (`+`, `-`, `*`, `/`, `%`, `>`, `<`, `>=`, `<=`, `=`, `==`, `!=`) — arithmetic and comparison
-- **Joiner** (`+-`, `+:`) — join with separator
-- **Sorter** (`>>`) — sort by type (numbers, dates, text, mixed)
-- **Switcher** (`?`, `??`, `???`, `?:`) — ternary and case branching
+Both forms are equally expressive. Pick whichever reads better for the expression in front of you.
 
-See the test file (`tests/engine.test.js`) for worked examples of each category.
+### Keyword casing
 
-## User-defined snippets
+Plain-form keywords (`SHOW`, `WHERE`, `SORTED BY`, `COUNT OF`, `IF`, `AND`, `OR`, …) can be written in any case — `SHOW`, `show`, and `Show` all parse as the same keyword. **ALL CAPS is the stable contract:** if you write a keyword in ALL CAPS, it is guaranteed to be interpreted as a keyword, now and in every future version.
 
-Snippets are named functions defined inline, passed to the constructor. They can reference variables, call each other, and take positional or variadic arguments.
+Lowercase is SQL-style convenience. If you have a variable or custom function with the same name as a Plain keyword (`count`, `show`, `where`, etc.), write the keyword in ALL CAPS to keep them distinct:
+
+```
+{COUNT OF items}     // always the Plain keyword
+{count}              // your variable named `count`
+```
+
+When in doubt, uppercase.
+
+## What makes it different
+
+Three things Loom does that most template engines don't:
+
+**List-aware by default.** Most functions operate element-by-element on lists. `{+ prices 10}` adds 10 to each price. `{> ages 18}` returns a list of booleans. Accessing a property on a list of objects (`{publications.title}`) returns the list of titles. The stdlib is built around this — filter, sort, join, format, aggregate all work on lists without an explicit loop.
+
+**Graceful with missing data.** In Loom, a value is **empty** if it's `""`, `null`, `undefined`, `NaN`, `[]`, or `{}` — things that shouldn't appear in output. The conditional join drops the enclosing clause if any referenced value is empty:
+
+```
+{+? 'Dr. ' title}
+// → "Dr. Smith"    if title is "Smith"
+// → ""             if title is missing
+```
+
+This is how you write `{', ' city province country}` and have it gracefully collapse to `"Fredericton, Canada"` when `province` is missing — no double commas, no dangling separators.
+
+Numbers are never empty — `0` is a legitimate value and joins into output normally:
+
+```
+{+? 'Likes: ' likes}
+// → "Likes: 0"     if likes is 0
+// → ""             if likes is null or missing
+```
+
+For conditional logic (rather than output), the ternary `?` uses a broader "falsy" check where `0`, `false`, and empty collections all count as false:
+
+```
+{? likes 'has likes' 'no likes'}
+// likes = 0     → "no likes"
+// likes = 5     → "has likes"
+```
+
+The split is deliberate: **empty** is about "should this drop from output?" and **falsy** is about "is this a false condition?" Most users never have to think about the distinction — it just does the right thing.
+
+**Inline pipelines.** Filter → sort → join → format → label is a single expression, not a chain of helpers. A realistic report line:
+
+```
+Awarded {TOTAL OF grants.amount AS currency USD} across {COUNT OF grants} grants,
+averaging {AVERAGE OF grants.amount AS currency USD} each.
+```
+
+## Snippets
+
+Snippets are user-defined named functions declared inline. Once defined, they behave like built-in functions.
 
 ```js
 const loom = new Loom(`
-    [greet name] { Hello, {name}! }
+    [greet name]          { Hello, {name}! }
     [fullName first last] { {first} {last} }
-    [salutation title first last] { {+? title ' '}{fullName first last} }
+    [xor a b]             (& (| a b) (! (& a b)))
 `)
 
-loom.render('{greet "Diego"}', () => undefined).trim()
-// → "Hello, Diego!"
-
-loom.render('{fullName "Diego" "Macrini"}', () => undefined).trim()
-// → "Diego Macrini"
-
-loom.render('{salutation "Dr." "Diego" "Macrini"}', () => undefined).trim()
-// → "Dr. Diego Macrini"
+loom.render('{greet "Diego"}')                 // → "Hello, Diego!"
+loom.render('{fullName "Diego" "Macrini"}')    // → "Diego Macrini"
+loom.evaluateText('xor true false')            // → true
 ```
 
-Snippets defined inside `{ … }` (braces) are rendered as text templates. Snippets defined inside `( … )` are treated as expressions — `evaluateText` runs on them directly, useful for reusable data-transformation helpers.
+Snippet bodies in `{…}` are text templates (evaluated with `render`), and bodies in `(…)` are expressions (evaluated with `evaluateText`). Snippet bodies accept both Plain and Compact forms, just like any other Loom expression.
+
+Snippets can call other snippets, reference outer variables, and accept variadic `...args`. See the [language reference](./docs/language.md#snippets) for the full feature set including the `$0` flag-bag parameter.
 
 ## Custom JavaScript functions
 
@@ -140,16 +193,28 @@ For operations the standard library doesn't cover, register custom JS functions 
 ```js
 const loom = new Loom({}, {
     uppercase: (flags, value) => String(value).toUpperCase(),
-    slug: (flags, value) => String(value).toLowerCase().replace(/\s+/g, '-'),
-    double: (flags, n) => n * 2,
+    slug:      (flags, value) => String(value).toLowerCase().replace(/\s+/g, '-'),
+    daysSince: (flags, date) => Math.floor((Date.now() - new Date(date)) / 86400000),
 })
 
-loom.evaluateText('uppercase "hello world"')    // → "HELLO WORLD"
-loom.evaluateText('slug "My Great Title"')      // → "my-great-title"
-loom.evaluateText('double 21')                  // → 42
+loom.evaluateText('uppercase "hello world"')   // → "HELLO WORLD"
+loom.evaluateText('slug "My Great Title"')     // → "my-great-title"
 ```
 
-Custom functions receive `(flags, ...args)` — `flags` is the parsed flag object (e.g., from `-foo=bar` in the expression) and `args` are the positional arguments.
+Custom functions receive `(flags, ...args)` — `flags` is the parsed option bag, `args` are the positional arguments.
+
+## The lower layer: `@uniweb/loom/core`
+
+`@uniweb/loom` includes the Plain-form parser by default. If you only write Compact form and want to skip the Plain parser entirely, import the core engine:
+
+```js
+import { LoomCore } from '@uniweb/loom/core'
+
+const loom = new LoomCore()
+loom.render("{', ' city province country}", profile)
+```
+
+`LoomCore` has the same API as `Loom` but does not recognize Plain-form keywords. Use it when you're writing purely Compact-form templates and want the parser bypass. For most users, the default `Loom` export is the right choice.
 
 ## API
 
@@ -165,29 +230,7 @@ loom.evaluateText(expr, vars?, auxVars?)     // → any
 loom.setVariables(vars)                      // persist a default resolver
 ```
 
-The `vars` argument can be either:
-- A function `(key) => value`
-- A plain object `{ key: value }` — converted to a function automatically
-
-`auxVars` is a `Map` of local variables that don't modify the loom's default resolver — useful for scoped overrides.
-
-## Plain — the natural-language layer
-
-For authors who'd rather write English-like phrases than memorize Polish notation, Loom ships a companion surface syntax called **Plain**. Plain compiles to Loom at parse time, runs on the same evaluator, and is a strict superset — any Loom expression is valid Plain, and the two can be mixed freely in the same template.
-
-```js
-import { Plain } from '@uniweb/loom/plain'
-
-const plain = new Plain()
-plain.render(
-    '{SHOW publications.title WHERE refereed SORTED BY date DESCENDING JOINED BY ", "}',
-    vars
-)
-```
-
-Plain lives at a separate subpath export (`@uniweb/loom/plain`) so templates that don't need it don't load the parser. The constructor, variable model, and snippet system are identical to `Loom`.
-
-See the [Plain tutorial and reference](./docs/plain.md) for the full language.
+The `vars` argument can be a function `(key) => value` or a plain object. `auxVars` is a `Map` of local variables that don't modify the default resolver — useful for scoped overrides.
 
 ## Documentation
 
@@ -195,15 +238,13 @@ Full docs live in [`docs/`](./docs/):
 
 - **[Basics](./docs/basics.md)** — Start here. Placeholders, variables, functions, the main idioms.
 - **[Quick guide](./docs/quick-guide.md)** — 10-minute tour of the most-used features.
-- **[Language reference](./docs/language.md)** — Complete reference: every function, every flag, every syntactic form.
+- **[Language reference](./docs/language.md)** — Complete reference: every function, every flag, every syntactic form, both surface forms.
 - **[Examples](./docs/examples.md)** — Worked examples organized by task.
-- **[Plain](./docs/plain.md)** — The natural-language layer that compiles to Loom.
 - **[AI prompt](./docs/ai-prompt.md)** — Paste into ChatGPT/Claude to generate Loom expressions from plain English.
-- **[History](./docs/history.md)** — The story of where Loom came from.
 
 ## Status
 
-**Pre-1.0.** Core API (`render`, `evaluateText`, snippets, custom functions) is stable. The standard library is ported largely unchanged from an internal "unilang" mini-language that has been in production use for academic reporting since around 2018. 128 tests cover the core engine plus the Plain surface syntax — variables, math, conditionals, joins, sorting, formatting, logical operations, snippets, report-style templates, and the full Plain translation table.
+Stable core API (`render`, `evaluateText`, snippets, custom functions). 175 tests cover the evaluator, both surface forms, snippets, and report-style templates. Used in production for academic CV and funding reports.
 
 ## See also
 
