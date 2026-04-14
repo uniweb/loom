@@ -815,12 +815,22 @@ function applyMapper(fn, flags, args) {
  * @returns {*} The result of calling the given function with the given arguments.
  */
 function applyFormatter(fn, flags, args) {
-    const formatItem = (args) => {
-        if (args.length == 1) {
-            return fn(flags, args[0]);
-        }
+    // Single-argument case — including a single list arg. Let formatValue
+    // handle the whole value at once so list-typed values reach
+    // formatList, which drops falsy items and joins with the configured
+    // separator. Taking the matrix path for a one-arg list would
+    // transpose to per-element calls, which (a) loses the drop-empties
+    // semantics and (b) leaks `flags.type` across iterations because
+    // formatValue caches it via `flags.type ??= inferType(...)`.
+    if (args.length === 1) {
+        return fn({ ...flags }, args[0]);
+    }
 
-        return args.map((c) => fn(flags, c));
+    // Multi-argument path. Clone flags per iteration to keep the cached
+    // type from one item contaminating the next.
+    const formatItem = (items) => {
+        if (items.length == 1) return fn({ ...flags }, items[0]);
+        return items.map((c) => fn({ ...flags }, c));
     };
 
     if (!hasArrays(args)) {
@@ -828,10 +838,7 @@ function applyFormatter(fn, flags, args) {
     }
 
     const matrix = createMatrix({}, args);
-
-    return matrix.map((item) => {
-        return formatItem(item);
-    });
+    return matrix.map((item) => formatItem(item));
 }
 
 /**

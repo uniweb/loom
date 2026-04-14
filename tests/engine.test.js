@@ -369,6 +369,28 @@ describe('collectors', () => {
         const vars = { nums: [100, 200, 300] }
         expect(evaluate('++!! nums', vars)).toBe(3)
     })
+
+    it('formatter does not leak inferred type across list items', () => {
+        // Regression: applyFormatter used to route a single-list arg
+        // through its matrix path, transposing to per-element calls that
+        // shared the same flags object. formatValue caches inferred type
+        // via `flags.type ??= inferType(...)`, so a list like
+        // [null, 'New', 'Mid'] saw null first, cached type='null', and
+        // formatted every subsequent string as empty — the placeholder
+        // rendered as ', , ' instead of 'New, Mid'. Fixed by letting
+        // single-list args reach formatList, which drops falsy items.
+        const engine = new Loom()
+        const result = engine
+            .render('{? (> pubs.year 2020) pubs.title}', {
+                pubs: [
+                    { title: 'Old', year: 2018 },
+                    { title: 'New', year: 2023 },
+                    { title: 'Mid', year: 2021 },
+                ],
+            })
+            .trim()
+        expect(result).toBe('New, Mid')
+    })
 })
 
 // ============================================================================
