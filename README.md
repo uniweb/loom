@@ -112,18 +112,30 @@ You can mix the two freely. A nested `{…}` inside a Plain-form expression pass
 
 Both forms are equally expressive. Pick whichever reads better for the expression in front of you.
 
-### Keyword casing
+### Keyword casing and shadowing
 
-Plain-form keywords (`SHOW`, `WHERE`, `SORTED BY`, `COUNT OF`, `IF`, `AND`, `OR`, …) can be written in any case — `SHOW`, `show`, and `Show` all parse as the same keyword. **ALL CAPS is the stable contract:** if you write a keyword in ALL CAPS, it is guaranteed to be interpreted as a keyword, now and in every future version.
+Plain-form keywords (`SHOW`, `WHERE`, `SORTED BY`, `COUNT OF`, `IF`, `AND`, `OR`, …) can be written in any case — `SHOW`, `show`, and `Show` all parse as the same keyword. ALL CAPS reads clearer and is the convention in examples and the language reference, but lowercase works too.
 
-Lowercase is SQL-style convenience. If you have a variable or custom function with the same name as a Plain keyword (`count`, `show`, `where`, etc.), write the keyword in ALL CAPS to keep them distinct:
+**Variable names can shadow keywords in most positions.** Loom recognizes keywords only where the grammar actually expects one — at the start of a placeholder for construct verbs (`SHOW`, `IF`, `COUNT OF`, …), immediately after a value for modifiers (`WHERE`, `AS`, `SORTED BY`, …), and in specific sub-keyword slots inside constructs (`THEN`, `ELSE`, `IN`, `DO`, …). A word in any other position — including any value position — is always an identifier. So user variables that happen to share a name with a keyword just work:
 
 ```
-{COUNT OF items}     // always the Plain keyword
 {count}              // your variable named `count`
+{COUNT OF items}     // the aggregation keyword
+{SHOW count}         // "show the count variable"
+{person.where}       // dotted access to a `where` field
+{title SORTED BY year}   // `title` is a bare value, SORTED BY is a modifier
 ```
 
-When in doubt, uppercase.
+**The one exception**: a custom function registered under a name that matches a **single-word construct keyword** (`show`, `if`) cannot be invoked through Plain's function-call syntax, because the grammar sees that word as the construct verb at the start of a placeholder. If you need a custom function with that name, either rename it or call it through `@uniweb/loom/core` with Compact-form templates, which don't recognize Plain keywords:
+
+```js
+const loom = new Loom({}, {
+    show: (flags, value) => `[${value}]`, // ⚠ unreachable from Plain
+})
+loom.render('{show "Hi"}') // → "Hi", not "[Hi]"
+```
+
+Multi-word keyword prefixes (`count of`, `total of`, `sum of`, `average of`, `for each`) don't have this limitation — `{count "x"}` with a custom `count` function works fine because `count` alone isn't a keyword (only `count of` is).
 
 ## What makes it different
 

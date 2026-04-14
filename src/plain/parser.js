@@ -35,24 +35,89 @@
  * "currency USD", "phone").
  */
 
-import { FORMAT_TYPES } from './tokenizer.js'
+import { FORMAT_TYPES, matchKeywordAt } from './tokenizer.js'
 
 export { parse }
 
 export class PlainParseError extends Error {}
 
-const MODIFIER_KEYWORDS = new Set([
-    'AS',
-    'WITH LABEL',
-    'SORTED BY',
-    'FROM LOWEST TO HIGHEST',
-    'FROM HIGHEST TO LOWEST',
-    'JOINED BY',
-    'WHERE',
-    'IF',
-])
-
 const DATE_WORDS = new Set(['long', 'full', 'short', 'medium'])
+
+// -----------------------------------------------------------------------------
+// Position-specific keyword phrase sets.
+//
+// Each parse function consults only the phrases that are valid in its
+// grammar position. A `word` token that could match a keyword in one
+// position (`SHOW` as a construct verb) is left alone in positions that
+// don't expect one (e.g., a bare-value position), so user variables and
+// functions that share a name with a Plain keyword don't get silently
+// reinterpreted.
+//
+// Phrases are stored as lowercase word arrays matching the form the
+// tokenizer's KEYWORD_PHRASES uses — matchKeywordAt() compares them
+// case-insensitively and returns a canonical uppercase value.
+// -----------------------------------------------------------------------------
+
+// Construct keywords are the verbs that can start an expression.
+// parseExpression consults this set first; on a miss, it treats the
+// leading word as an identifier (function call or implicit SHOW body).
+const CONSTRUCT_KEYWORDS = [
+    ['for', 'each'],
+    ['total', 'of'],
+    ['sum', 'of'],
+    ['average', 'of'],
+    ['count', 'of'],
+    ['show'],
+    ['if'],
+]
+
+// Modifier keywords chain onto a value: `{foo AS long date}`,
+// `{foo WHERE bar}`, `{foo SORTED BY x DESCENDING}`, etc. parseModifiers
+// consults this set; on a miss, it stops the modifier chain and lets
+// the caller continue.
+const MODIFIER_KEYWORDS = [
+    ['from', 'lowest', 'to', 'highest'],
+    ['from', 'highest', 'to', 'lowest'],
+    ['sorted', 'by'],
+    ['joined', 'by'],
+    ['with', 'label'],
+    ['where'],
+    ['as'],
+    ['if'],
+]
+
+// Modifier keywords that also terminate a function-call argument list.
+// `{fn arg SORTED BY x}` wraps the call in a show node; the SORTED BY
+// must end the arg collection. Same set as MODIFIER_KEYWORDS — shared
+// by reference.
+const ARG_TERMINATING_KEYWORDS = MODIFIER_KEYWORDS
+
+// Sub-keywords — consumed inside specific construct parsers.
+const THEN_OR_SHOW = [['then'], ['show']]
+const ELSE_OR_OTHERWISE = [['otherwise'], ['else']]
+const ELSE_OR_SHOW = [['else'], ['show']]
+const IN_KEYWORD = [['in']]
+const DO_KEYWORD = [['do']]
+const ASCENDING_KEYWORD = [['ascending']]
+const DESCENDING_KEYWORD = [['descending']]
+const WHERE_OR_IF = [['where'], ['if']]
+
+/**
+ * Try to match a keyword at the current position against one of several
+ * allowed phrase sets. Returns `{ canonical, length }` on a match,
+ * null otherwise. Does NOT advance the parser cursor — callers advance
+ * with consumeKeyword() after they've decided to take the match.
+ */
+function peekKeyword(p, allowedSet) {
+    return matchKeywordAt(p.tokens, p.i, allowedSet)
+}
+
+/**
+ * Advance past a keyword phrase matched by peekKeyword().
+ */
+function consumeKeyword(p, match) {
+    p.i += match.length
+}
 
 function parse(tokens) {
     const p = { tokens, i: 0 }
@@ -88,34 +153,43 @@ function parseExpression(p) {
     const t = peek(p)
     if (!t) return null
 
-    if (t.type === 'keyword') {
-        switch (t.value) {
+    // Position-aware construct keyword lookup. The parser asks "does the
+    // current position contain a construct verb?" and only treats a word
+    // as a keyword if it matches one. A single-word construct (SHOW / IF)
+    // additionally requires at least one more token after it — a bare
+    // `{show}` placeholder falls through to identifier lookup instead of
+    // a broken empty SHOW, so user variables that shadow single-word
+    // keywords work via principled grammar rather than parse-throw-and-
+    // fallback.
+    const kw = peekKeyword(p, CONSTRUCT_KEYWORDS)
+    if (kw && !isStranded(p, kw)) {
+        consumeKeyword(p, kw)
+        switch (kw.canonical) {
             case 'IF':
-                return parseIf(p)
+                return parseIfBody(p)
             case 'SHOW':
-                advance(p)
                 return parseShowBody(p)
             case 'TOTAL OF':
             case 'SUM OF':
-                advance(p)
                 return { type: 'sum', value: parseValue(p) }
             case 'AVERAGE OF':
-                advance(p)
                 return { type: 'average', value: parseValue(p) }
             case 'COUNT OF':
-                return parseCount(p)
+                return parseCountBody(p)
             case 'FOR EACH':
-                return parseForEach(p)
+                return parseForEachBody(p)
         }
     }
 
-    // Function-call form: an identifier followed immediately by at least
-    // one atomic value token (e.g. `greet "Diego"`, `bold (SHOW price AS
-    // currency USD)`). Distinct from a bare variable lookup (`greet`) and
-    // from a variable with a modifier (`greet WITH LABEL`, where the next
-    // token is a keyword, not a value). Function calls can themselves
-    // take modifiers: `{fn arg SORTED BY x}` sorts the call result.
-    if (t.type === 'identifier' && isFunctionCallStart(p)) {
+    // Function-call form: a word followed immediately by at least one
+    // value-ish token (string, number, paren group, loom passthrough, or
+    // another identifier-word that isn't a modifier keyword). Distinct
+    // from a bare variable lookup (`greet`) and from a variable with a
+    // modifier (`greet WITH LABEL`, where the next token IS a modifier
+    // keyword and must not be consumed as an argument). Function calls
+    // can themselves take modifiers: `{fn arg SORTED BY x}` sorts the
+    // call result.
+    if (t.type === 'word' && isFunctionCallStart(p)) {
         const call = parseFunctionCall(p)
         const modifiers = parseModifiers(p)
         if (modifiers.length > 0) {
@@ -128,16 +202,46 @@ function parseExpression(p) {
     return parseShowBody(p)
 }
 
+/**
+ * A keyword match is "stranded" if it consumes all remaining tokens
+ * without leaving room for the construct's operand(s). This lets
+ * `{show}` alone fall through to identifier lookup instead of entering
+ * parseShowBody with no value. Multi-word keywords are never stranded
+ * because matching them means the phrase words were all present, which
+ * is usually enough for the construct to proceed (edge cases like
+ * `{COUNT OF}` alone still fall through to parseCountBody and fail
+ * there — they're nonsense inputs either way).
+ */
+function isStranded(p, kw) {
+    const remaining = p.tokens.length - p.i - kw.length
+    return remaining <= 0 && kw.length === 1
+}
+
 function isFunctionCallStart(p) {
     const next = peek(p, 1)
     if (!next) return false
-    return (
-        next.type === 'identifier' ||
+    // Unambiguous value tokens — always an argument.
+    if (
         next.type === 'string' ||
         next.type === 'number' ||
         next.type === 'lparen' ||
         next.type === 'loom'
-    )
+    ) {
+        return true
+    }
+    // Word tokens are value-ish only if they DON'T match a modifier
+    // keyword at this position. A modifier keyword here belongs to the
+    // current word (which is then a bare variable with a modifier
+    // attached), not to a function-call argument list. Peek-ahead uses
+    // a temporary cursor bump so we don't advance the parser.
+    if (next.type === 'word') {
+        const savedI = p.i
+        p.i += 1
+        const mod = peekKeyword(p, MODIFIER_KEYWORDS)
+        p.i = savedI
+        return mod == null
+    }
+    return false
 }
 
 function parseFunctionCall(p) {
@@ -147,10 +251,11 @@ function parseFunctionCall(p) {
         const t = peek(p)
         if (!t) break
         // Stop at anything that can't be an argument: closing paren,
-        // modifier/verb keywords, or infix operators.
+        // infix operators, or a word that matches a modifier keyword
+        // (which belongs to the outer show-node, not to the arg list).
         if (t.type === 'rparen') break
-        if (t.type === 'keyword') break
         if (t.type === 'operator') break
+        if (t.type === 'word' && peekKeyword(p, MODIFIER_KEYWORDS)) break
         const val = parseValue(p)
         if (val == null) break
         args.push(val)
@@ -189,17 +294,17 @@ function parseModifiers(p) {
     const mods = []
 
     while (p.i < p.tokens.length) {
-        const t = peek(p)
-        if (!t || t.type !== 'keyword' || !MODIFIER_KEYWORDS.has(t.value)) break
+        const kw = peekKeyword(p, MODIFIER_KEYWORDS)
+        if (!kw) break
 
-        switch (t.value) {
+        switch (kw.canonical) {
             case 'AS': {
-                advance(p)
+                consumeKeyword(p, kw)
                 mods.push({ type: 'as', format: parseFormatSpec(p) })
                 break
             }
             case 'WITH LABEL': {
-                advance(p)
+                consumeKeyword(p, kw)
                 let label = null
                 if (peek(p) && peek(p).type === 'string') {
                     label = advance(p).value
@@ -208,33 +313,32 @@ function parseModifiers(p) {
                 break
             }
             case 'SORTED BY': {
-                advance(p)
+                consumeKeyword(p, kw)
                 const value = parseValue(p)
                 let order = 'asc'
-                const next = peek(p)
-                if (next && next.type === 'keyword') {
-                    if (next.value === 'DESCENDING') {
-                        advance(p)
-                        order = 'desc'
-                    } else if (next.value === 'ASCENDING') {
-                        advance(p)
-                    }
+                const descKw = peekKeyword(p, DESCENDING_KEYWORD)
+                if (descKw) {
+                    consumeKeyword(p, descKw)
+                    order = 'desc'
+                } else {
+                    const ascKw = peekKeyword(p, ASCENDING_KEYWORD)
+                    if (ascKw) consumeKeyword(p, ascKw)
                 }
                 mods.push({ type: 'sortedBy', value, order })
                 break
             }
             case 'FROM LOWEST TO HIGHEST': {
-                advance(p)
+                consumeKeyword(p, kw)
                 mods.push({ type: 'sortedBy', value: parseValue(p), order: 'asc' })
                 break
             }
             case 'FROM HIGHEST TO LOWEST': {
-                advance(p)
+                consumeKeyword(p, kw)
                 mods.push({ type: 'sortedBy', value: parseValue(p), order: 'desc' })
                 break
             }
             case 'JOINED BY': {
-                advance(p)
+                consumeKeyword(p, kw)
                 const s = peek(p)
                 if (!s || s.type !== 'string') {
                     throw new PlainParseError(`JOINED BY expects a quoted string`)
@@ -245,7 +349,7 @@ function parseModifiers(p) {
             }
             case 'WHERE':
             case 'IF': {
-                advance(p)
+                consumeKeyword(p, kw)
                 mods.push({ type: 'where', condition: parseCondition(p) })
                 break
             }
@@ -265,11 +369,14 @@ function parseFormatSpec(p) {
         return { raw: first.value }
     }
 
-    // Bare-words form: collect up to two identifier tokens.
+    // Bare-words form: collect up to two word tokens. A word that would
+    // match a modifier keyword in this position terminates collection so
+    // it can be consumed as the next modifier instead.
     const words = []
     while (words.length < 2) {
         const t = peek(p)
-        if (!t || t.type !== 'identifier') break
+        if (!t || t.type !== 'word') break
+        if (peekKeyword(p, MODIFIER_KEYWORDS)) break
         words.push(advance(p).value.toLowerCase())
     }
 
@@ -303,26 +410,25 @@ function parseFormatSpec(p) {
     return { type: a, value: null }
 }
 
-function parseIf(p) {
-    expect(p, 'keyword', 'IF')
+// The construct sub-parsers assume parseExpression has already consumed
+// the leading construct keyword. They pick up from the position after
+// the keyword's word(s).
+
+function parseIfBody(p) {
     const condition = parseCondition(p)
 
     // Optional THEN / SHOW before the true-branch.
-    const t1 = peek(p)
-    if (t1 && t1.type === 'keyword' && (t1.value === 'THEN' || t1.value === 'SHOW')) {
-        advance(p)
-    }
+    const thenKw = peekKeyword(p, THEN_OR_SHOW)
+    if (thenKw) consumeKeyword(p, thenKw)
 
     const thenBranch = parseBranch(p)
 
     let elseBranch = null
-    const t2 = peek(p)
-    if (t2 && t2.type === 'keyword' && (t2.value === 'OTHERWISE' || t2.value === 'ELSE')) {
-        advance(p)
-        const t3 = peek(p)
-        if (t3 && t3.type === 'keyword' && (t3.value === 'SHOW' || t3.value === 'ELSE')) {
-            advance(p)
-        }
+    const elseKw = peekKeyword(p, ELSE_OR_OTHERWISE)
+    if (elseKw) {
+        consumeKeyword(p, elseKw)
+        const followup = peekKeyword(p, ELSE_OR_SHOW)
+        if (followup) consumeKeyword(p, followup)
         elseBranch = parseBranch(p)
     }
 
@@ -336,34 +442,28 @@ function parseBranch(p) {
     return parseValue(p)
 }
 
-function parseCount(p) {
-    expect(p, 'keyword', 'COUNT OF')
+function parseCountBody(p) {
     const value = parseValue(p)
     let where = null
-    const t = peek(p)
-    if (t && t.type === 'keyword' && (t.value === 'WHERE' || t.value === 'IF')) {
-        advance(p)
+    const whereKw = peekKeyword(p, WHERE_OR_IF)
+    if (whereKw) {
+        consumeKeyword(p, whereKw)
         where = parseCondition(p)
     }
     return { type: 'count', value, where }
 }
 
-function parseForEach(p) {
-    expect(p, 'keyword', 'FOR EACH')
+function parseForEachBody(p) {
     const identTok = peek(p)
-    if (!identTok || identTok.type !== 'identifier') {
+    if (!identTok || identTok.type !== 'word') {
         throw new PlainParseError('FOR EACH expects an identifier')
     }
     advance(p)
-    const inTok = peek(p)
-    if (inTok && inTok.type === 'keyword' && inTok.value === 'IN') {
-        advance(p)
-    }
+    const inKw = peekKeyword(p, IN_KEYWORD)
+    if (inKw) consumeKeyword(p, inKw)
     const list = parseValue(p)
-    const doTok = peek(p)
-    if (doTok && doTok.type === 'keyword' && doTok.value === 'DO') {
-        advance(p)
-    }
+    const doKw = peekKeyword(p, DO_KEYWORD)
+    if (doKw) consumeKeyword(p, doKw)
     const body = parseExpression(p)
     return { type: 'forEach', ident: identTok.value, list, body }
 }
@@ -474,7 +574,12 @@ function parseValue(p) {
         return { type: 'number', value: t.value }
     }
 
-    if (t.type === 'identifier') {
+    if (t.type === 'word') {
+        // A word in value position is always an identifier, regardless of
+        // whether it would match a keyword phrase elsewhere. The parser
+        // only checks for keywords at positions where the grammar expects
+        // one (construct start, modifier position, construct sub-keyword
+        // positions); here it doesn't, so the word is a variable name.
         advance(p)
         return { type: 'var', path: t.value }
     }

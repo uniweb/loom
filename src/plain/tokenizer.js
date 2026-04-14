@@ -2,22 +2,35 @@
  * Plain tokenizer.
  *
  * Produces a flat token stream from a Plain expression string (the contents
- * of a single {…} placeholder, with the outer braces already stripped). The
- * tokenizer is permissive: keywords are case-insensitive, multi-word keywords
- * are matched greedily, commas are absorbed, and unrecognized input drops
- * through as identifier tokens for the parser to decide.
+ * of a single {…} placeholder, with the outer braces already stripped).
+ *
+ * The tokenizer deliberately does NOT pre-classify identifier-like tokens
+ * as keywords vs identifiers. Every word comes out as a generic `word`
+ * token, and the parser decides — based on its current grammar position —
+ * whether a given word is a keyword (a construct verb, a modifier, a
+ * sub-keyword) or an identifier (variable or function name). This is
+ * position-aware keyword recognition: keywords only "win" in positions
+ * where the grammar actually expects one, so user variables and functions
+ * that happen to share a name with a Plain keyword don't get silently
+ * reinterpreted in positions that can't accept a keyword anyway.
+ *
+ * The `and`/`or`/`not` → `&`/`|`/`!` mapping is kept at tokenizer level
+ * because those produce operators (not keywords) and operators have the
+ * same meaning at every position they're allowed. That's scoped separately
+ * from the keyword work.
  *
  * Token shapes:
- *   { type: 'keyword',    value: 'SHOW' | 'SORTED BY' | ... }
+ *   { type: 'word',       value: 'SHOW' | 'publications.title' | ... }
+ *     // Raw verbatim word — original case preserved. The parser's
+ *     // keyword lookup compares case-insensitively.
  *   { type: 'operator',   value: '>' | '>=' | '&' | '|' | '!' | ... }
- *   { type: 'identifier', value: 'publications.title' }
  *   { type: 'number',     value: 42 }
  *   { type: 'string',     value: 'Main Address' }       // quotes stripped
  *   { type: 'loom',       value: '{+ 1 2}' }            // passthrough
  *   { type: 'lparen' | 'rparen', value: '(' | ')' }
  */
 
-export { tokenize, KEYWORDS, FORMAT_TYPES }
+export { tokenize, KEYWORD_PHRASES, KEYWORDS, FORMAT_TYPES }
 
 /**
  * Multi-word keywords first (greedy longest match). Each entry is the
@@ -82,14 +95,15 @@ const IDENT_CONT = /[a-zA-Z0-9_.\/@]/
 const DIGIT = /[0-9]/
 
 function tokenize(input) {
-    const raw = splitRawTokens(input)
-    return collapseKeywords(raw)
+    return splitRawTokens(input)
 }
 
 /**
- * First pass: walk the string character-by-character, producing words,
- * numbers, quoted strings, operators, parens, and Loom passthroughs.
- * Whitespace and commas are skipped.
+ * Walk the string character-by-character, producing words, numbers,
+ * quoted strings, operators, parens, and Loom passthroughs. Whitespace
+ * and commas are skipped. No keyword classification — every raw word
+ * is emitted as a `word` token for the parser to interpret based on
+ * grammar position.
  */
 function splitRawTokens(input) {
     const out = []
@@ -157,11 +171,26 @@ function splitRawTokens(input) {
             continue
         }
 
-        // Identifier (letters, digits, _, ., /, @)
+        // Word (letters, digits, _, ., /, @). A word might be a Plain
+        // keyword, a logical operator spelled as English (and/or/not),
+        // an identifier, or a variable path. The parser decides based
+        // on grammar position; the only per-word rewrite we do here is
+        // and/or/not → `&`/`|`/`!`, because those produce operators
+        // (not keywords) and operators have position-independent meaning.
         if (IDENT_START.test(c)) {
             let j = i + 1
             while (j < n && IDENT_CONT.test(input[j])) j++
-            out.push({ type: 'word', value: input.slice(i, j) })
+            const raw = input.slice(i, j)
+            const lower = raw.toLowerCase()
+            if (lower === 'and') {
+                out.push({ type: 'operator', value: '&' })
+            } else if (lower === 'or') {
+                out.push({ type: 'operator', value: '|' })
+            } else if (lower === 'not') {
+                out.push({ type: 'operator', value: '!' })
+            } else {
+                out.push({ type: 'word', value: raw })
+            }
             i = j
             continue
         }
@@ -176,7 +205,16 @@ function splitRawTokens(input) {
 
 /**
  * A `-` is a unary-minus (part of a negative literal) only if the previous
- * token expects an operator — i.e. it would be the start of a new value.
+ * token expects a value next. That includes: start of input, just after an
+ * operator, just after `(`, and just after a word that matches any known
+ * keyword phrase (e.g., `SHOW -5` — the `SHOW` word is a construct keyword
+ * in the grammar, and the `-5` is its value argument).
+ *
+ * This uses the full KEYWORDS set rather than a position-specific subset
+ * because wantsValue is a heuristic, not part of the grammar. A false
+ * positive here just means the parser gets a negative number where it
+ * might have been able to reject a minus; it won't cause silent
+ * mistranslation.
  */
 function wantsValue(out) {
     if (out.length === 0) return true
@@ -217,57 +255,23 @@ function findMatching(input, start, open, close) {
 }
 
 /**
- * Second pass: collapse word sequences into keyword tokens (greedy longest
- * match), resolve single-word keywords (and/or/not -> operators; show/if/...
- * -> keywords), and promote the rest to identifier tokens.
+ * Position-aware keyword lookup — used by the parser, not the tokenizer.
+ *
+ * Attempts to match a keyword phrase at the given token index against an
+ * allowed subset of phrases. Returns `{ canonical, length }` on a greedy
+ * longest match, or null if nothing in the allowed set matches.
+ *
+ * The parser calls this with a position-specific allowed set (e.g.,
+ * construct keywords at expression start, modifier keywords after a
+ * value, sub-keywords like THEN/ELSE inside an IF). A word that would
+ * match a keyword phrase in a different position is left alone — it
+ * gets consumed as an identifier when the parser asks for a value.
+ *
+ * Comparison is case-insensitive. The canonical return value is the
+ * uppercase space-joined phrase (e.g., `SORTED BY`).
  */
-function collapseKeywords(tokens) {
-    const out = []
-    let i = 0
-    const n = tokens.length
-
-    while (i < n) {
-        const t = tokens[i]
-
-        if (t.type !== 'word') {
-            out.push(t)
-            i++
-            continue
-        }
-
-        const matched = matchPhrase(tokens, i)
-        if (matched) {
-            out.push({ type: 'keyword', value: matched.canonical })
-            i += matched.length
-            continue
-        }
-
-        const lower = t.value.toLowerCase()
-        if (lower === 'and') {
-            out.push({ type: 'operator', value: '&' })
-            i++
-            continue
-        }
-        if (lower === 'or') {
-            out.push({ type: 'operator', value: '|' })
-            i++
-            continue
-        }
-        if (lower === 'not') {
-            out.push({ type: 'operator', value: '!' })
-            i++
-            continue
-        }
-
-        out.push({ type: 'identifier', value: t.value })
-        i++
-    }
-
-    return out
-}
-
-function matchPhrase(tokens, start) {
-    for (const phrase of KEYWORD_PHRASES) {
+function matchKeywordAt(tokens, start, allowedPhrases) {
+    for (const phrase of allowedPhrases) {
         if (start + phrase.length > tokens.length) continue
         let ok = true
         for (let k = 0; k < phrase.length; k++) {
@@ -286,3 +290,5 @@ function matchPhrase(tokens, start) {
     }
     return null
 }
+
+export { matchKeywordAt }

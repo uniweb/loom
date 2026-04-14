@@ -158,3 +158,106 @@ describe('plain engine — fallback on parse failure', () => {
         expect(() => render('{zz}', {})).not.toThrow()
     })
 })
+
+// -----------------------------------------------------------------------------
+// Keyword shadowing — regression coverage for position-aware matching
+// -----------------------------------------------------------------------------
+//
+// Before position-aware matching landed, the tokenizer classified every word
+// that matched a keyword phrase as a keyword eagerly, and user variables that
+// shadowed single-word keywords (`show`, `where`, `if`, etc.) worked only by
+// accident — the parser threw, the engine caught, and the raw input fell
+// through to LoomCore's Compact-form evaluator.
+//
+// These tests lock in the behavior so the position-aware refactor can't
+// silently regress it. They should pass both before and after the refactor,
+// but the mechanism changes: the refactor makes them work through the
+// principled "a word in a value position is an identifier" rule rather than
+// through the throw-and-fallback path.
+
+describe('plain engine — keyword shadowing', () => {
+    const shadowVars = {
+        show: 'SHOWVAL',
+        where: 'WHEREVAL',
+        count: 42,
+        total: 100,
+        sum: 'SUMVAL',
+        if: 'IFVAL',
+        then: 'THENVAL',
+        else: 'ELSEVAL',
+        otherwise: 'OTHVAL',
+        in: 'INVAL',
+        as: 'ASVAL',
+        ascending: 'ASCVAL',
+        descending: 'DESCVAL',
+    }
+
+    it('bare single-word keyword variables resolve to their value', () => {
+        expect(render('{show}', shadowVars)).toBe('SHOWVAL')
+        expect(render('{where}', shadowVars)).toBe('WHEREVAL')
+        expect(render('{count}', shadowVars)).toBe('42')
+        expect(render('{total}', shadowVars)).toBe('100')
+        expect(render('{sum}', shadowVars)).toBe('SUMVAL')
+        expect(render('{if}', shadowVars)).toBe('IFVAL')
+        expect(render('{then}', shadowVars)).toBe('THENVAL')
+        expect(render('{else}', shadowVars)).toBe('ELSEVAL')
+        expect(render('{otherwise}', shadowVars)).toBe('OTHVAL')
+        expect(render('{in}', shadowVars)).toBe('INVAL')
+        expect(render('{as}', shadowVars)).toBe('ASVAL')
+        expect(render('{ascending}', shadowVars)).toBe('ASCVAL')
+        expect(render('{descending}', shadowVars)).toBe('DESCVAL')
+    })
+
+    it('multi-word keyword prefixes require their continuation', () => {
+        // `count` alone is a variable; `count of <list>` is the aggregation
+        // keyword. The distinction is syntactic, not contractual — `count`
+        // can't match `count of` without a following `of` token.
+        expect(render('{count}', { count: 7 })).toBe('7')
+        expect(
+            render('{COUNT OF pubs}', {
+                pubs: [{ refereed: true }, { refereed: false }],
+            }),
+        ).toBe('2')
+        expect(render('{total}', { total: 50 })).toBe('50')
+        expect(
+            render('{TOTAL OF xs}', { xs: [1, 2, 3] }),
+        ).toBe('6')
+    })
+
+    it('SHOW with a shadowed identifier renders the variable', () => {
+        expect(render('{SHOW count}', { count: 42 })).toBe('42')
+        expect(render('{SHOW title}', { title: 'Hello' })).toBe('Hello')
+    })
+
+    it('dotted paths with keyword tails work as variable access', () => {
+        // The whole dotted path is one identifier token; the fact that the
+        // tail segment matches a keyword phrase is irrelevant.
+        expect(render('{person.count}', { person: { count: 7 } })).toBe('7')
+        expect(render('{person.show}', { person: { show: 'x' } })).toBe('x')
+        expect(render('{person.where}', { person: { where: 'home' } })).toBe('home')
+    })
+
+    it('function calls with non-keyword names work', () => {
+        // Plain's function-call syntax is `{name arg1 arg2}`. Names that
+        // don't collide with single-word keywords (most user-chosen names,
+        // including `count` since it's only a keyword as `count of`) parse
+        // as function calls cleanly.
+        const loom = new Loom({}, {
+            greet: (flags, val) => `Hi, ${val}!`,
+            count: (flags, val) => `[count:${val}]`,
+        })
+        expect(loom.render('{greet "Diego"}', () => undefined)).toBe('Hi, Diego!')
+        expect(loom.render('{count "x"}', () => undefined)).toBe('[count:x]')
+    })
+
+    it('modifier keywords in modifier position still parse as keywords', () => {
+        const vars = {
+            pubs: [
+                { title: 'A', year: 2018 },
+                { title: 'B', year: 2022 },
+                { title: 'C', year: 2024 },
+            ],
+        }
+        expect(render('{pubs.title SORTED BY year}', vars)).toBe('A, B, C')
+    })
+})
