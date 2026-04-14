@@ -9,7 +9,7 @@
  */
 
 import Loom from '../engine.js'
-import { findEnclosures } from '../tokenizer.js'
+import { findEnclosures, parseSnippets } from '../tokenizer.js'
 import { tokenize } from './tokenizer.js'
 import { parse } from './parser.js'
 import { translate } from './translator.js'
@@ -18,11 +18,42 @@ export { Plain }
 
 class Plain {
     /**
-     * @param {Object|string} snippets - Passed through to Loom.
-     * @param {Object} functions - Passed through to Loom.
+     * @param {Object|string} snippets - Same forms as Loom accepts (source
+     *   string, object, or empty). Bodies written in Plain syntax are
+     *   eagerly translated to Loom at construction time.
+     * @param {Object} functions - Passed through to Loom unchanged.
      */
     constructor(snippets = {}, functions = {}) {
-        this.loom = new Loom(snippets, functions)
+        const prepared = this._prepareSnippets(snippets)
+        this.loom = new Loom(prepared, functions)
+    }
+
+    /**
+     * Pre-parse and translate snippet bodies so that any Plain syntax
+     * inside a body is converted to Loom before the body is stored. After
+     * this step, Loom's evaluator never sees Plain syntax — it just sees
+     * a library of normal Loom snippets.
+     *
+     * Uses Loom's own parseSnippets to handle the source-string form and
+     * to normalize the object form. Pre-built function values are passed
+     * through unchanged.
+     */
+    _prepareSnippets(snippets) {
+        const parsed = parseSnippets(snippets)
+        const result = {}
+        for (const [name, def] of Object.entries(parsed)) {
+            if (typeof def === 'function') {
+                result[name] = def
+                continue
+            }
+            result[name] = {
+                ...def,
+                body: def.isText
+                    ? this.translateTemplate(def.body)
+                    : this.translateExpression(def.body),
+            }
+        }
+        return result
     }
 
     /**

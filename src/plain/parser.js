@@ -109,8 +109,53 @@ function parseExpression(p) {
         }
     }
 
+    // Function-call form: an identifier followed immediately by at least
+    // one atomic value token (e.g. `greet "Diego"`, `bold (SHOW price AS
+    // currency USD)`). Distinct from a bare variable lookup (`greet`) and
+    // from a variable with a modifier (`greet WITH LABEL`, where the next
+    // token is a keyword, not a value). Function calls can themselves
+    // take modifiers: `{fn arg SORTED BY x}` sorts the call result.
+    if (t.type === 'identifier' && isFunctionCallStart(p)) {
+        const call = parseFunctionCall(p)
+        const modifiers = parseModifiers(p)
+        if (modifiers.length > 0) {
+            return { type: 'show', value: call, modifiers }
+        }
+        return call
+    }
+
     // Implicit SHOW — bare value with optional modifiers.
     return parseShowBody(p)
+}
+
+function isFunctionCallStart(p) {
+    const next = peek(p, 1)
+    if (!next) return false
+    return (
+        next.type === 'identifier' ||
+        next.type === 'string' ||
+        next.type === 'number' ||
+        next.type === 'lparen' ||
+        next.type === 'loom'
+    )
+}
+
+function parseFunctionCall(p) {
+    const name = advance(p).value
+    const args = []
+    while (p.i < p.tokens.length) {
+        const t = peek(p)
+        if (!t) break
+        // Stop at anything that can't be an argument: closing paren,
+        // modifier/verb keywords, or infix operators.
+        if (t.type === 'rparen') break
+        if (t.type === 'keyword') break
+        if (t.type === 'operator') break
+        const val = parseValue(p)
+        if (val == null) break
+        args.push(val)
+    }
+    return { type: 'call', name, args }
 }
 
 function parseShowBody(p) {

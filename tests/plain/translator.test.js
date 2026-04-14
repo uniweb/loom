@@ -77,19 +77,29 @@ describe('plain translator — conditionals', () => {
         expect(T('IF x SHOW "a"')).toBe("? x 'a'")
     })
 
-    it('trailing IF becomes a filter', () => {
-        expect(T('SHOW publications.title IF published')).toBe('? published publications.title')
-    })
-
-    it('WHERE is a synonym of trailing IF', () => {
-        expect(T('SHOW publications.title WHERE refereed')).toBe(
-            '? refereed publications.title'
+    it('trailing IF becomes a filter (condition prefixed with list root)', () => {
+        expect(T('SHOW publications.title IF published')).toBe(
+            '? publications.published publications.title'
         )
     })
 
-    it('WHERE with compound condition', () => {
+    it('WHERE is a synonym of trailing IF (condition prefixed)', () => {
+        expect(T('SHOW publications.title WHERE refereed')).toBe(
+            '? publications.refereed publications.title'
+        )
+    })
+
+    it('WHERE with compound condition (all bare vars prefixed)', () => {
+        // Both `refereed` and `year` get prefixed with the list root so
+        // the condition evaluates per-element via Loom's list-awareness.
         expect(T('SHOW publications.title WHERE refereed AND year > 2020')).toBe(
-            '? (& refereed (> year 2020)) publications.title'
+            '? (& publications.refereed (> publications.year 2020)) publications.title'
+        )
+    })
+
+    it('WHERE leaves already-dotted paths alone', () => {
+        expect(T('SHOW publications.title WHERE publications.refereed')).toBe(
+            '? publications.refereed publications.title'
         )
     })
 })
@@ -147,25 +157,67 @@ describe('plain translator — aggregation', () => {
         expect(T('COUNT OF publications')).toBe('++!! publications')
     })
 
-    it('COUNT OF ... WHERE ...', () => {
+    it('COUNT OF ... WHERE ... (counts truthy values of the prefixed condition)', () => {
+        // Cleaner than filter-then-count: `++!! pubs.refereed` counts
+        // truthy values in the refereed list directly.
         expect(T('COUNT OF publications WHERE refereed')).toBe(
-            '++!! (? refereed publications)'
+            '++!! publications.refereed'
+        )
+    })
+
+    it('COUNT OF ... WHERE ... with compound condition', () => {
+        expect(T('COUNT OF publications WHERE year > 2020')).toBe(
+            '++!! (> publications.year 2020)'
         )
     })
 })
 
 describe('plain translator — composition', () => {
-    it('WHERE + SORTED BY + JOINED BY', () => {
+    it('WHERE + SORTED BY + JOINED BY (WHERE condition prefixed)', () => {
+        // Note: combining WHERE with SORTED BY and a *projected* list
+        // like publications.title has a semantic limitation — the filtered
+        // result is a list of strings with no `date` property to sort by.
+        // For correct ordering, sort the full list first, then filter.
+        // This test just verifies the translation shape; semantics are
+        // documented in plain.md.
         expect(
             T(
                 'SHOW publications.title WHERE refereed SORTED BY date DESCENDING JOINED BY ", "'
             )
-        ).toBe("+: ', ' (>> -desc -by=date (? refereed publications.title))")
+        ).toBe(
+            "+: ', ' (>> -desc -by=date (? publications.refereed publications.title))"
+        )
     })
 })
 
 describe('plain translator — loom passthrough', () => {
     it('passes through a raw loom expression', () => {
         expect(T('{+ 1 2}')).toBe('+ 1 2')
+    })
+})
+
+describe('plain translator — function calls', () => {
+    it('single-arg call', () => {
+        expect(T('greet "Diego"')).toBe("greet 'Diego'")
+    })
+
+    it('multi-arg call', () => {
+        expect(T('fullname "Diego" "Macrini"')).toBe("fullname 'Diego' 'Macrini'")
+    })
+
+    it('nested call with Plain inside grouped arg', () => {
+        expect(T('bold (SHOW price AS currency USD)')).toBe(
+            'bold (# -currency=usd price)'
+        )
+    })
+
+    it('call with trailing modifier', () => {
+        expect(T('filter items SORTED BY date')).toBe(
+            '>> -by=date (filter items)'
+        )
+    })
+
+    it('call with a variable arg', () => {
+        expect(T('bold name')).toBe('bold name')
     })
 })
