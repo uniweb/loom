@@ -86,16 +86,59 @@ function translateCall(node) {
 }
 
 function translateShow(node) {
-    let expr = nested(node.value)
     // The "list root" is the prefix path used to scope bare identifiers
     // in WHERE conditions. For `SHOW pubs.title WHERE refereed`, the root
     // is `pubs`, and `refereed` gets rewritten to `pubs.refereed` so the
     // condition evaluates per-element via Loom's list-awareness.
     const listRoot = extractListRoot(node.value)
 
-    for (const mod of node.modifiers) {
+    // Aggregate-WHERE pre-pass.
+    //
+    // A WHERE modifier on an aggregate value (count/sum/average) needs a
+    // filter-then-aggregate rewrite rather than the naive wrap-in-a-
+    // ternary form that works for scalar/list values. "Count the items
+    // WHERE cond" means counting after filtering, not "if cond, then
+    // count; otherwise nothing."
+    //
+    // The rewrite REPLACES the initial expression rather than wrapping
+    // it, so any modifiers already processed before we hit the WHERE
+    // would be lost if this ran inside the main modifier loop. Handling
+    // it as a pre-pass keeps order-independence: `COUNT OF x WHERE y
+    // AS number` and `COUNT OF x AS number WHERE y` produce the same
+    // result because AS is always applied AFTER the aggregate-WHERE
+    // rewrite, regardless of the source-text order.
+    let expr
+    let skipWhereIndex = -1
+    const av = node.value
+    if (
+        av &&
+        (av.type === 'count' || av.type === 'sum' || av.type === 'average')
+    ) {
+        const whereIdx = node.modifiers.findIndex((m) => m.type === 'where')
+        if (whereIdx >= 0) {
+            const whereMod = node.modifiers[whereIdx]
+            const aggRoot = extractListRoot(av.value)
+            const cond = nested(prefixBareVars(whereMod.condition, aggRoot))
+            if (av.type === 'count') {
+                expr = `(++!! ${cond})`
+            } else if (av.type === 'sum') {
+                expr = `(++ (? ${cond} ${nested(av.value)}))`
+            } else {
+                const v = nested(av.value)
+                expr = `(/ (++ (? ${cond} ${v})) (++!! ${cond}))`
+            }
+            skipWhereIndex = whereIdx
+        }
+    }
+    if (expr == null) expr = nested(node.value)
+
+    for (let i = 0; i < node.modifiers.length; i++) {
+        if (i === skipWhereIndex) continue
+        const mod = node.modifiers[i]
         switch (mod.type) {
             case 'where': {
+                // Non-aggregate WHERE: wrap the expression in a ternary.
+                // Aggregate WHERE was already handled by the pre-pass.
                 const cond = nested(prefixBareVars(mod.condition, listRoot))
                 expr = `(? ${cond} ${expr})`
                 break
@@ -135,14 +178,10 @@ function translateIf(node) {
 }
 
 function translateCount(node) {
-    if (node.where != null) {
-        // Count truthy values of the per-element condition list. For
-        // `COUNT OF pubs WHERE refereed`, this produces `++!! pubs.refereed`
-        // which is cheaper and more idiomatic than filtering first.
-        const listRoot = extractListRoot(node.value)
-        const cond = nested(prefixBareVars(node.where, listRoot))
-        return `(++!! ${cond})`
-    }
+    // Plain `COUNT OF x` without a WHERE modifier. The WHERE case is
+    // handled uniformly by translateShow's WHERE branch (a count node
+    // wrapped in a show with where modifier), not here — that's why
+    // there's no `node.where` to check.
     return `(++!! ${nested(node.value)})`
 }
 
@@ -151,6 +190,10 @@ function translateCount(node) {
  * identifiers in a WHERE condition. For `pubs.title` → `pubs`; for
  * `user.publications.title` → `user.publications`; for a bare `pubs` or
  * any non-variable value → the value's own path (or null).
+ *
+ * Aggregate nodes (count/sum/average) unwrap to their inner value so
+ * that WHERE on an aggregate — `SUM OF grants.amount WHERE active` —
+ * can use `grants` as the list root for prefixing `active`.
  */
 function extractListRoot(node) {
     if (node == null) return null
@@ -160,6 +203,13 @@ function extractListRoot(node) {
         return node.path
     }
     if (node.type === 'group') return extractListRoot(node.inner)
+    if (
+        node.type === 'count' ||
+        node.type === 'sum' ||
+        node.type === 'average'
+    ) {
+        return extractListRoot(node.value)
+    }
     return null
 }
 

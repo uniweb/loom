@@ -136,7 +136,103 @@ describe('plain engine — aggregation', () => {
     })
 
     it('COUNT OF', () => {
+        // `grants` here is a list of non-empty objects. ++!! treats them
+        // as truthy, so COUNT OF returns 3. An empty-object list would
+        // return 0 under Loom's isFalsy semantics — that's a design
+        // tradeoff around truthiness, not an aggregation bug.
         expect(evaluate('COUNT OF grants', { grants })).toBe(3)
+    })
+
+    // Regression: WHERE on COUNT OF filters the source list by per-
+    // element condition. These locked in the pre-session behavior so
+    // the aggregate-modifier unification can't silently regress them.
+
+    it('COUNT OF ... WHERE bare condition counts truthy values', () => {
+        const pubs = [
+            { refereed: true },
+            { refereed: false },
+            { refereed: true },
+        ]
+        expect(evaluate('COUNT OF pubs WHERE refereed', { pubs })).toBe(2)
+    })
+
+    it('COUNT OF ... WHERE comparison condition', () => {
+        const pubs = [{ year: 2019 }, { year: 2023 }, { year: 2024 }]
+        expect(evaluate('COUNT OF pubs WHERE year > 2020', { pubs })).toBe(2)
+    })
+
+    // New capability: modifiers on aggregates. Before position-aware
+    // matching work, the parser's aggregate branches returned raw
+    // count/sum/average nodes without calling parseModifiers, so AS /
+    // WITH LABEL / and friends after an aggregate were left as
+    // unconsumed trailing tokens, throwing and falling back to a
+    // broken LoomCore path.
+
+    it('COUNT OF ... AS number format', () => {
+        const pubs = [{ year: 2019 }, { year: 2023 }, { year: 2024 }]
+        const r = render('{COUNT OF pubs WHERE year > 2020 AS number}', { pubs })
+        expect(r).toContain('2')
+    })
+
+    it('TOTAL OF ... WITH LABEL renders the labeled total', () => {
+        const grants = [{ amount: 100 }, { amount: 200 }, { amount: 300 }]
+        const r = render('{TOTAL OF grants.amount WITH LABEL "Total"}', { grants })
+        expect(r).toContain('Total')
+        expect(r).toContain('600')
+    })
+
+    it('SUM OF ... WHERE filters the source list before summing', () => {
+        // New behavior: WHERE on SUM/TOTAL/AVERAGE is rewritten as a
+        // filter-then-aggregate rather than wrap-sum-in-ternary. The
+        // sum of { amount WHERE active } is the sum of active amounts.
+        const grants = [
+            { amount: 100, active: true },
+            { amount: 200, active: false },
+            { amount: 300, active: true },
+        ]
+        expect(evaluate('SUM OF grants.amount WHERE active', { grants })).toBe(400)
+    })
+
+    it('SUM OF ... WHERE combined with AS currency', () => {
+        const grants = [
+            { amount: 100, active: true },
+            { amount: 200, active: false },
+            { amount: 300, active: true },
+        ]
+        const r = render(
+            '{SUM OF grants.amount WHERE active AS currency USD}',
+            { grants },
+        )
+        expect(r).toContain('400')
+    })
+
+    it('AVERAGE OF ... WHERE filters the source list before averaging', () => {
+        const pubs = [
+            { year: 2018, refereed: true },
+            { year: 2020, refereed: false },
+            { year: 2024, refereed: true },
+        ]
+        // Average of the years where refereed is true: (2018 + 2024) / 2 = 2021
+        expect(evaluate('AVERAGE OF pubs.year WHERE refereed', { pubs })).toBe(2021)
+    })
+
+    it('WHERE order on aggregates does not affect the result', () => {
+        // Modifier ordering is irrelevant: WHERE is always applied first
+        // via translator pre-pass, so AS / WITH LABEL always wraps the
+        // filter-then-aggregate result regardless of source-text order.
+        const pubs = [
+            { year: 2018, refereed: true },
+            { year: 2020, refereed: false },
+            { year: 2024, refereed: true },
+        ]
+        const whereFirst = render(
+            '{COUNT OF pubs WHERE refereed AS number}', { pubs }
+        )
+        const asFirst = render(
+            '{COUNT OF pubs AS number WHERE refereed}', { pubs }
+        )
+        expect(whereFirst).toBe(asFirst)
+        expect(whereFirst).toContain('2')
     })
 })
 

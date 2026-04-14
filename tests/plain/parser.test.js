@@ -131,15 +131,58 @@ describe('plain parser — aggregation', () => {
     })
 
     it('parses COUNT OF', () => {
+        // Bare aggregate with no modifiers — returns the count node
+        // directly, not wrapped in a show.
         const ast = P('COUNT OF publications')
         expect(ast.type).toBe('count')
-        expect(ast.where).toBe(null)
+        expect(ast.value).toEqual({ type: 'var', path: 'publications' })
     })
 
-    it('parses COUNT OF ... WHERE ...', () => {
+    it('parses COUNT OF ... WHERE ... as show wrapping count', () => {
+        // WHERE is no longer consumed inside parseCountBody. It's a
+        // uniform modifier on a wrapping show node, same as AS or
+        // WITH LABEL. translateShow's WHERE branch detects the
+        // aggregate value and emits the filter-then-count Compact
+        // form, so the semantic output is unchanged.
         const ast = P('COUNT OF publications WHERE refereed')
-        expect(ast.type).toBe('count')
-        expect(ast.where).toEqual({ type: 'var', path: 'refereed' })
+        expect(ast.type).toBe('show')
+        expect(ast.value).toEqual({
+            type: 'count',
+            value: { type: 'var', path: 'publications' },
+        })
+        expect(ast.modifiers).toEqual([
+            { type: 'where', condition: { type: 'var', path: 'refereed' } },
+        ])
+    })
+
+    it('parses SUM OF with AS modifier as show wrapping sum', () => {
+        const ast = P('SUM OF grants.amount AS currency USD')
+        expect(ast.type).toBe('show')
+        expect(ast.value).toEqual({
+            type: 'sum',
+            value: { type: 'var', path: 'grants.amount' },
+        })
+        expect(ast.modifiers).toEqual([
+            { type: 'as', format: { type: 'currency', value: 'usd' } },
+        ])
+    })
+
+    it('parses SUM OF with WHERE modifier as show wrapping sum', () => {
+        const ast = P('SUM OF grants.amount WHERE active')
+        expect(ast.type).toBe('show')
+        expect(ast.value.type).toBe('sum')
+        expect(ast.modifiers).toEqual([
+            { type: 'where', condition: { type: 'var', path: 'active' } },
+        ])
+    })
+
+    it('parses AVERAGE OF with AS modifier as show wrapping average', () => {
+        const ast = P('AVERAGE OF pubs.year AS number')
+        expect(ast.type).toBe('show')
+        expect(ast.value.type).toBe('average')
+        expect(ast.modifiers).toEqual([
+            { type: 'as', format: { type: 'number', value: null } },
+        ])
     })
 })
 

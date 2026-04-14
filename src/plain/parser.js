@@ -171,11 +171,11 @@ function parseExpression(p) {
                 return parseShowBody(p)
             case 'TOTAL OF':
             case 'SUM OF':
-                return { type: 'sum', value: parseValue(p) }
+                return wrapWithModifiers(p, { type: 'sum', value: parseValue(p) })
             case 'AVERAGE OF':
-                return { type: 'average', value: parseValue(p) }
+                return wrapWithModifiers(p, { type: 'average', value: parseValue(p) })
             case 'COUNT OF':
-                return parseCountBody(p)
+                return wrapWithModifiers(p, parseCountBody(p))
             case 'FOR EACH':
                 return parseForEachBody(p)
         }
@@ -443,14 +443,31 @@ function parseBranch(p) {
 }
 
 function parseCountBody(p) {
-    const value = parseValue(p)
-    let where = null
-    const whereKw = peekKeyword(p, WHERE_OR_IF)
-    if (whereKw) {
-        consumeKeyword(p, whereKw)
-        where = parseCondition(p)
-    }
-    return { type: 'count', value, where }
+    // Just the value. WHERE / AS / WITH LABEL / etc. are all consumed
+    // uniformly by the outer parseModifiers pass in wrapWithModifiers,
+    // which means aggregate + modifier handling is unified with show
+    // and WHERE order doesn't matter (`COUNT OF x WHERE y AS number`
+    // and `COUNT OF x AS number WHERE y` produce the same AST).
+    //
+    // The translator's WHERE branch in translateShow detects aggregate
+    // values (count/sum/average) and emits the filter-then-aggregate
+    // Compact form directly, so there's no semantic loss from hoisting
+    // WHERE out of the parser's aggregate sub-parsers.
+    return { type: 'count', value: parseValue(p) }
+}
+
+/**
+ * Wrap a value node with a show node when any modifiers follow at the
+ * current parse position; otherwise return the value node unchanged.
+ *
+ * Used by the aggregate cases of parseExpression so that AS / WITH LABEL
+ * / JOINED BY / WHERE / etc. can chain onto a TOTAL/SUM/AVERAGE/COUNT
+ * without each sub-parser having to replicate the modifier loop.
+ */
+function wrapWithModifiers(p, valueNode) {
+    const modifiers = parseModifiers(p)
+    if (modifiers.length === 0) return valueNode
+    return { type: 'show', value: valueNode, modifiers }
 }
 
 function parseForEachBody(p) {
