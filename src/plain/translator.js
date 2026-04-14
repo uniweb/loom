@@ -25,8 +25,27 @@ function translate(node) {
 
 function nested(node) {
     switch (node.type) {
-        case 'loom':
-            return stripBraces(node.value)
+        case 'loom': {
+            // A loom passthrough represents a complete Compact-form
+            // sub-expression embedded in a Plain template. If its inner
+            // content has more than one top-level token (whitespace
+            // outside strings and nested brackets), wrap it in parens
+            // so a parent modifier can safely embed it as a single
+            // argument — otherwise the tokens would fragment into the
+            // parent function call's arg list.
+            //
+            // Single-token inners like `{name}` are left bare because
+            // LoomCore parses `(name)` as a function call to `name`,
+            // not as a grouped identifier. Wrapping them would break
+            // existing templates that use a bare variable placeholder
+            // inside a Plain construct.
+            //
+            // The final stripOuterParens() pass unwraps any redundant
+            // outer pair when this expression ends up as the top-level
+            // result of translate().
+            const inner = stripBraces(node.value)
+            return hasTopLevelWhitespace(inner) ? `(${inner})` : inner
+        }
         case 'var':
             return node.path
         case 'string':
@@ -238,6 +257,50 @@ function stripBraces(s) {
         return s.slice(1, -1)
     }
     return s
+}
+
+/**
+ * Does the string contain whitespace at the top nesting level, outside
+ * string literals and balanced (), {}, or [] groups?
+ *
+ * Used by the loom-passthrough translator to decide whether the inner
+ * content is a single atomic token (`name`, `(+ 1 2)`, `"hi there"`)
+ * that can be embedded bare, or a multi-token expression (`+ 1 2`,
+ * `+? "Dr. " title`) that must be wrapped in parens so a parent
+ * function-call wrapper doesn't fragment it.
+ */
+function hasTopLevelWhitespace(s) {
+    let depth = 0
+    let inStr = false
+    let quote = ''
+    for (let i = 0; i < s.length; i++) {
+        const c = s[i]
+        if (inStr) {
+            if (c === '\\' && i + 1 < s.length) {
+                i++
+                continue
+            }
+            if (c === quote) inStr = false
+            continue
+        }
+        if (c === '"' || c === "'" || c === '`') {
+            inStr = true
+            quote = c
+            continue
+        }
+        if (c === '(' || c === '{' || c === '[') {
+            depth++
+            continue
+        }
+        if (c === ')' || c === '}' || c === ']') {
+            depth--
+            continue
+        }
+        if (depth === 0 && (c === ' ' || c === '\t' || c === '\n' || c === '\r')) {
+            return true
+        }
+    }
+    return false
 }
 
 /**

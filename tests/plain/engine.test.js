@@ -149,6 +149,56 @@ describe('plain engine — loom passthrough', () => {
         const tmpl = 'Sum: {+ a b}, Shown: {SHOW name}'
         expect(render(tmpl, { a: 1, b: 2, name: 'Diego' })).toBe('Sum: 3, Shown: Diego')
     })
+
+    // A Compact sub-expression nested inside a Plain construct must be
+    // safely embedded as a single atomic argument when a modifier wraps
+    // it. Multi-token inners (like `+ 1 2`) get parenthesized; single-
+    // token inners (like `{name}`) stay bare because LoomCore parses
+    // `(name)` as a function call to `name`, not as a grouped identifier.
+
+    it('multi-token loom passthrough inside SHOW + WITH LABEL', () => {
+        // `{+ 1 2}` is a Compact sum embedded in a Plain SHOW, then
+        // wrapped with a label. The translator must wrap the `+ 1 2`
+        // in parens or the label function sees three separate args.
+        const result = render('{SHOW {+ 1 2} WITH LABEL "Sum"}')
+        expect(result).toContain('Sum')
+        expect(result).toContain('3')
+    })
+
+    it('multi-token loom passthrough with quoted-string token', () => {
+        // `+? "Dr. " title` has quoted-string content with internal
+        // whitespace — the wrap detector must NOT count string-internal
+        // whitespace as a reason to wrap, but the top-level whitespace
+        // between `+?`, the string, and `title` IS a reason to wrap.
+        const result = render(
+            '{SHOW {+? "Dr. " title} WITH LABEL "Name"}',
+            { title: 'Smith' },
+        )
+        expect(result).toContain('Name')
+        expect(result).toContain('Dr. Smith')
+    })
+
+    it('single-token loom passthrough stays bare inside SHOW + WITH LABEL', () => {
+        // Regression: `{name}` with a label must still work. A refactor
+        // that unconditionally wraps loom inners in parens would break
+        // this because `(name)` parses as a function call in LoomCore.
+        const result = render(
+            '{SHOW {name} WITH LABEL "Name"}',
+            { name: 'Diego' },
+        )
+        expect(result).toContain('Name')
+        expect(result).toContain('Diego')
+    })
+
+    it('already-parenthesized loom inner stays as-is', () => {
+        // `{(+ 1 2)}` — the inner is already `(+ 1 2)` after stripping
+        // the loom braces. Top-level whitespace is inside the parens
+        // (depth > 0), so the detector says "don't wrap". Parent
+        // embedding still works.
+        const result = render('{SHOW {(+ 1 2)} WITH LABEL "Sum"}')
+        expect(result).toContain('Sum')
+        expect(result).toContain('3')
+    })
 })
 
 describe('plain engine — fallback on parse failure', () => {
