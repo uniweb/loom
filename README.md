@@ -228,6 +228,65 @@ loom.render("{', ' city province country}", profile)
 
 `LoomCore` has the same API as `Loom` but does not recognize Plain-form keywords. Use it when you're writing purely Compact-form templates and want the parser bypass. For most users, the default `Loom` export is the right choice.
 
+## Instantiating structured documents
+
+`render()` and `evaluateText()` operate on strings. When your templates live inside a structured document — a ProseMirror tree, a Uniweb markdown page, any content graph where the text to resolve is buried in text nodes — use `instantiateContent` to walk the tree and resolve placeholders in place:
+
+```js
+import { Loom, instantiateContent } from '@uniweb/loom'
+
+const loom = new Loom()
+
+const doc = {
+    type: 'doc',
+    content: [
+        {
+            type: 'heading',
+            attrs: { level: 1 },
+            content: [{ type: 'text', text: 'Hello {first_name}!' }],
+        },
+        {
+            type: 'paragraph',
+            content: [
+                {
+                    type: 'text',
+                    text: 'You have {COUNT OF publications WHERE refereed} refereed publications.',
+                },
+            ],
+        },
+    ],
+}
+
+const resolved = instantiateContent(doc, loom, (key) => profile[key])
+```
+
+`instantiateContent(content, engine, vars)` accepts:
+
+- `content` — a ProseMirror-style document (`{ type: 'doc', content: [...] }`) or a plain array of nodes. Any node without a text field or children passes through unchanged.
+- `engine` — any object with a `render(text, vars)` method. A `Loom` instance is the expected caller, but the duck-typed contract means the walker can be reused by any future template engine.
+- `vars` — a `(key) => value` resolver, same shape `Loom.render()` accepts.
+
+The function returns a new tree with every text node's `text` field run through `engine.render()`. The input is not mutated.
+
+The primary consumer is a Uniweb foundation's content handler, which instantiates a report template against a freshly-fetched profile before it ever reaches the renderer:
+
+```js
+// foundation.js
+import { Loom, instantiateContent } from '@uniweb/loom'
+
+const engine = new Loom()
+
+export default {
+    handlers: {
+        content(content, block) {
+            const data = block.content?.data
+            if (!data) return content
+            return instantiateContent(content, engine, (key) => data[key])
+        },
+    },
+}
+```
+
 ## API
 
 ```js
@@ -260,7 +319,7 @@ Stable core API (`render`, `evaluateText`, snippets, custom functions). 175 test
 
 ## See also
 
-- [`@uniweb/press`](https://github.com/uniweb/press) — A React library for generating Word (and soon Excel/PDF) documents. Loom fits naturally with Press when your document content contains dynamic `{placeholders}` — the `instantiateContent` helper in `@uniweb/press/sdk` walks a content tree and resolves placeholders through a Loom instance before the document is rendered.
+- [`@uniweb/press`](https://github.com/uniweb/press) — A React library for generating Word (and soon Excel/PDF) documents. Loom fits naturally with Press when your document content contains dynamic `{placeholders}`: a Uniweb foundation's content handler can call `instantiateContent` (exported from `@uniweb/loom`) to resolve placeholders against live data before Press ever sees the content.
 
 ## License
 

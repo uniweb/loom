@@ -31,5 +31,6 @@
  */
 
 export { default as Loom } from './engine.js'
+export { instantiateContent } from './instantiate.js'
 export { findEnclosures, parseSnippets } from './core/tokenizer.js'
 export { setLocale, getProperty } from './core/functions.js'
