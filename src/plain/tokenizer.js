@@ -28,6 +28,7 @@
  *   { type: 'string',     value: 'Main Address' }       // quotes stripped
  *   { type: 'loom',       value: '{+ 1 2}' }            // passthrough
  *   { type: 'lparen' | 'rparen', value: '(' | ')' }
+ *   { type: 'comma',      value: ',' }                   // multi-value separator
  */
 
 export { tokenize, KEYWORD_PHRASES, KEYWORDS, FORMAT_TYPES }
@@ -43,6 +44,7 @@ const KEYWORD_PHRASES = [
     ['sorted', 'by'],
     ['joined', 'by'],
     ['with', 'label'],
+    ['if', 'present'],
     ['for', 'each'],
     ['total', 'of'],
     ['sum', 'of'],
@@ -113,7 +115,20 @@ function splitRawTokens(input) {
     while (i < n) {
         const c = input[i]
 
-        if (c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === ',') {
+        if (c === ' ' || c === '\t' || c === '\n' || c === '\r') {
+            i++
+            continue
+        }
+
+        // Comma is a multi-value separator — emit as a distinct token so
+        // `parseShowBody` can detect multi-value SHOW (`SHOW a, b, c`) and
+        // `parseFunctionCall` can treat inter-argument commas as optional
+        // whitespace-equivalent separators. Parsers that don't expect a
+        // comma will stop on it and let the top-level parser reject the
+        // input as a syntax error (which correctly falls through to the
+        // Compact form via `translateExpression`'s catch-block).
+        if (c === ',') {
+            out.push({ type: 'comma', value: ',' })
             i++
             continue
         }

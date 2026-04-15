@@ -138,6 +138,38 @@ describe('plain translator — joining', () => {
     })
 })
 
+describe('plain translator — multi-value show', () => {
+    // Multi-value SHOW — three output shapes. `(+: sep ...)` calls
+    // joinWithSeparator, which filters empty items before joining
+    // (per-item drop). `(+? ...)` calls joinIfAllTrue, which returns ''
+    // if any arg is empty (all-or-nothing). Literal prefixes like
+    // 'Dr. ' are always non-empty strings, so only variable references
+    // can cause a `+?` clause to collapse.
+
+    it('translates comma-separated multi-value SHOW with JOINED BY', () => {
+        expect(T("SHOW city, province, country JOINED BY ', '")).toBe(
+            "+: ', ' city province country"
+        )
+    })
+
+    it('translates space-separated prefix + value with IF PRESENT', () => {
+        expect(T("SHOW 'Dr. ' title IF PRESENT")).toBe("+? 'Dr. ' title")
+    })
+
+    it('translates the labeled-row shape (@name, separator, name)', () => {
+        expect(T("SHOW @email, ': ', email IF PRESENT")).toBe(
+            "+? @email ': ' email"
+        )
+    })
+
+    it('translates bare multi-value SHOW with no modifier to empty-separator join', () => {
+        // No JOINED BY, no IF PRESENT → concatenate with empty separator
+        // but still per-item drop empties. Useful for "first + last name"
+        // style concatenation where an absent middle value should vanish.
+        expect(T('SHOW a, b, c')).toBe("+: '' a b c")
+    })
+})
+
 describe('plain translator — aggregation', () => {
     it('TOTAL OF', () => {
         expect(T('TOTAL OF grants.amount')).toBe('++ grants.amount')

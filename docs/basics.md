@@ -90,15 +90,26 @@ Variable names are case-sensitive and can't contain spaces in their bare form. W
 {`First Name`}    // equivalent to {first_name}
 ```
 
-### Localized labels
+### Variable labels
 
 Prefix a variable name with `@` to get its **label** instead of its value:
 
 ```
 {@address}: {address}
+// → "Address: 123 Main St"
 ```
 
-Your resolver decides what `@address` returns — typically a human-readable, possibly localized, field label. Loom just gives you a clean syntax for asking.
+Your resolver decides what `@address` returns — typically a human-readable (and possibly localized) field label. If the resolver returns nothing for a given `@name`, Loom falls back to **prettifying the variable name itself**: `first_name` becomes `"First Name"`, `date_of_birth` becomes `"Date of Birth"`. That means the common pattern is a small map of labels that actually need overrides, with prettification catching everything else for free.
+
+**For rows that should disappear when the value is empty**, use Plain's multi-value `SHOW … IF PRESENT` so Loom can drop the whole clause:
+
+```
+{SHOW @email, ': ', email IF PRESENT}
+// email = "a@b.com"  → "Email: a@b.com"
+// email = ""         → ""   (nothing shown)
+```
+
+The plain `{@email}: {email}` form is two separate placeholders, so it would leave `"Email: "` hanging when the value is missing. See [Variable labels](./language.md#variable-labels) and [Multi-value SHOW](./language.md#multi-value-show) in the language reference for the full pattern.
 
 ## Plain form: verbs, values, modifiers
 

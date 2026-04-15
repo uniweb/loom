@@ -12,6 +12,7 @@ Complete reference for the Loom expression language. For gentler introductions, 
 - [Plain form](#plain-form)
     - [SHOW](#show)
     - [Modifiers](#modifiers)
+    - [Multi-value SHOW](#multi-value-show)
     - [IF … OTHERWISE …](#if--otherwise)
     - [Aggregation verbs](#aggregation-verbs)
     - [Keyword reference](#plain-keyword-reference)
@@ -131,16 +132,72 @@ Variable names are case-sensitive and can't contain spaces in their bare form. W
 {`First Name`}    // equivalent to {first_name}
 ```
 
-### Localized labels
+### Variable labels
 
-Prefix a variable name with `@` to retrieve its label instead of its value:
+Prefix a variable name with `@` to retrieve its **label** instead of its value:
 
 ```
 {@address}: {address}
-// → "Address: 123 Main St"   (or localized equivalent)
+// → "Address: 123 Main St"
 ```
 
-Your resolver decides what `@address` returns — typically a human-readable, possibly localized, field label.
+This is the simplest way to produce "Label: value" output without hard-coding the label text inside the template — useful for forms, data sheets, localized reports, anywhere the display name of a field might change independently of the template.
+
+**How labels are resolved.** The engine asks the variables resolver for `@name` and interprets the return value in three steps:
+
+1. If it's a **string**, that's the label.
+2. If it's an **object** with a `label` property, that property is used.
+3. If nothing was returned (or an object without `label`), Loom falls back to **prettifying the variable name**: underscores become spaces and the result is title-cased, with English small words like "and", "the", "of" kept lowercase.
+
+So `first_name` → `"First Name"`, `date_of_birth` → `"Date of Birth"`, all without any configuration.
+
+**Empty values and the row pattern.** The simple form `{@field}: {field}` prints two separate placeholders, so when `field` is empty you get `"Label: "` — the label still shows. For a "Label: value" row that **drops cleanly when the value is missing**, use Plain's multi-value `SHOW … IF PRESENT`:
+
+```
+{SHOW @email, ': ', email IF PRESENT}
+// email = "a@b.com"   → "Email address: a@b.com"
+// email = ""          → ""   (entire row drops, label included)
+```
+
+Or the equivalent Compact form:
+
+```
+{+? @email ': ' email}
+```
+
+Both compile to the same conditional join (`joinIfAllTrue`), which checks every operand and emits the empty string if any of them is empty. Because the label side (`@email`) is never empty — the prettify fallback guarantees a non-empty string — the drop is driven entirely by the value side, which is exactly what you want.
+
+Use the simple `{@field}: {field}` form when you know the value is always present (headers, form scaffolds). Use the conditional-join form when the value may be missing and the whole row should drop with it. See [Multi-value SHOW](#multi-value-show) for the full shape, including the per-item-drop variant (`JOINED BY`) for list-style concatenation.
+
+**The idiomatic resolver pattern** is a map of label overrides with the prettify fallback catching everything else — you only spell out the labels that actually need a custom form:
+
+```js
+const labels = {
+    user_email: 'Email address',
+    dob: 'Date of birth',
+}
+
+const data = { user_email: 'a@b.com', dob: '1990-01-01', first_name: 'Ada' }
+
+const loom = new Loom()
+const vars = (key) => {
+    if (key.startsWith('@')) return labels[key.slice(1)] // undefined → prettify fallback
+    return data[key]
+}
+
+loom.render(
+    '{@user_email}: {user_email}\n{@first_name}: {first_name}',
+    vars
+)
+// → "Email address: a@b.com
+//    First Name: Ada"
+```
+
+`first_name` wasn't in the map, so the engine prettified it automatically. Returning `undefined` from the label branch triggers the fallback; returning an empty string suppresses the label entirely.
+
+**For localization**, the same mechanism carries a locale-aware label — your resolver returns whichever translation matches the active locale. Labels aren't tied to localization; localization is just one use of them. See [Localization](#localization) for related helpers.
+
+**Resolver shape matters here.** A function-shaped resolver `(key) => value` can cleanly route `@`-prefixed keys to a separate label map, as shown above. An object-shaped resolver works too, but you'd need literal `'@field_name'` keys mixed into the data object, which is usually less ergonomic.
 
 ## Empty vs falsy
 
@@ -259,6 +316,57 @@ By default a list is joined with `, ` when rendered. Use `JOINED BY` to pick a d
 {SHOW publications.title JOINED BY ' • '}
 {SHOW publications.title JOINED BY '\n'}
 ```
+
+`JOINED BY` also applies to the multi-value form of `SHOW` (see [Multi-value SHOW](#multi-value-show)), where it joins several independent values instead of the elements of a single list.
+
+#### `IF PRESENT` — drop the whole clause on missing data
+
+`IF PRESENT` is a post-modifier on a multi-value `SHOW` that concatenates its values only when every one of them is present, otherwise returns the empty string. It's the Plain-form surface for the conditional join that makes "Dr. <title>" style phrases gracefully disappear when the title is missing:
+
+```
+{SHOW 'Dr. ' title IF PRESENT}
+// title = "Smith"   → "Dr. Smith"
+// title = ""        → ""   (entire clause drops, including the 'Dr. ' prefix)
+```
+
+Literals are always non-empty, so they can never trigger the drop — only variable references (and Loom passthroughs) can cause an `IF PRESENT` clause to collapse. That's what makes it safe to write a literal prefix like `'Dr. '` without worrying about it dangling.
+
+See [Multi-value SHOW](#multi-value-show) for the full shape and its interaction with `JOINED BY`.
+
+### Multi-value SHOW
+
+`SHOW` accepts a **sequence of values** (variables, literals, Loom sub-expressions — in any combination), separated by commas or just whitespace. Both of these parse as the same thing:
+
+```
+{SHOW city, province, country JOINED BY ', '}
+{SHOW city province country JOINED BY ', '}
+```
+
+Commas are optional — use whichever reads better. They tend to read clearer for lists of the same kind (`city, province, country`) and feel redundant for prefix-plus-value patterns (`'Dr. ' title`).
+
+Three forms, three different join behaviors:
+
+| Form | Maps to | Semantics |
+|---|---|---|
+| `SHOW a, b, c` | `(+: '' a b c)` | **Per-item drop**, no separator. Each empty value is skipped; the rest concatenate with nothing between them. |
+| `SHOW a, b, c JOINED BY ', '` | `(+: ', ' a b c)` | **Per-item drop** with an explicit separator. The classic "city, province, country" pattern — missing fields are skipped, the rest join cleanly. |
+| `SHOW 'Dr. ' title IF PRESENT` | `(+? 'Dr. ' title)` | **All-or-nothing drop**. The full concatenation renders only if every value is present; otherwise the entire clause (including literal prefixes) collapses to the empty string. |
+
+**Per-item drop vs. all-or-nothing** is the distinction that makes graceful missing-data handling possible. Use `JOINED BY` when you're composing a list of independent fields that can stand on their own ("Fredericton, Canada" is still meaningful without the province). Use `IF PRESENT` when the values are semantically coupled and a missing piece means the whole phrase shouldn't appear ("Dr. " without a surname is wrong; "Year: " without a year is wrong).
+
+The canonical use of `IF PRESENT` together with `@name` labels is the **labeled row**:
+
+```
+{SHOW @email, ': ', email IF PRESENT}
+// email = "ada@example.com"  → "Email address: ada@example.com"
+// email = ""                 → ""    (whole row drops, label and separator included)
+```
+
+The label side (`@email`) is never empty — the prettify fallback guarantees a non-empty string — so the drop is driven entirely by the value side, which is exactly what the author wants.
+
+**Restrictions on multi-value SHOW.** Because the semantics of `WHERE`, `SORTED BY`, `AS`, and `WITH LABEL` aren't well-defined across N parallel values, the parser rejects them in combination with multiple values. `JOINED BY` and `IF PRESENT` are mutually exclusive with each other on the same `SHOW` — pick one. If you need list-style processing (filter, sort, format), apply the modifiers to each value in its own single-value `SHOW` or use a parenthesized sub-expression.
+
+**`SHOW` is optional when the form is unambiguous.** Implicit SHOW (omitting the `SHOW` keyword) works for multi-value expressions in two cases: when the values are separated by commas (`{city, province, country JOINED BY ', '}`), or when the first value is a literal (`{'Dr. ' title IF PRESENT}`). In the space-separated word + word case (`{title family_name}`), the parser classifies the leading word as a function name and the trailing word as its argument — the same rule that makes `{greet "Ada"}` work as a function call. If you want implicit multi-value SHOW there, either add the `SHOW` keyword (`{SHOW title family_name}`) or put a comma between the values (`{title, family_name}`).
 
 ### IF … OTHERWISE …
 
@@ -422,6 +530,10 @@ Every Plain form compiles to an equivalent Compact expression. This table is the
 | `{SHOW x FROM LOWEST TO HIGHEST y}` | `{>> -by=y x}` |
 | `{SHOW x FROM HIGHEST TO LOWEST y}` | `{>> -desc -by=y x}` |
 | `{SHOW x JOINED BY 's'}` | `{+: 's' x}` |
+| `{SHOW a, b, c}` | `{+: '' a b c}` (per-item drop, no separator) |
+| `{SHOW a, b, c JOINED BY 's'}` | `{+: 's' a b c}` (per-item drop with separator) |
+| `{SHOW 'prefix' x IF PRESENT}` | `{+? 'prefix' x}` (all-or-nothing drop) |
+| `{SHOW @x, ': ', x IF PRESENT}` | `{+? @x ': ' x}` (labeled row, drop-safe) |
 | `{TOTAL OF x.y}` | `{++ x.y}` |
 | `{SUM OF x.y}` | `{++ x.y}` |
 | `{AVERAGE OF x.y}` | `{/ (++ x.y) (++!! x.y)}` |
@@ -938,7 +1050,7 @@ Access translations with dot notation or the `.` accessor:
 
 ### Localized variable labels
 
-`@name` retrieves the localized label for `name`. Your resolver decides what that label is.
+See [Variable labels](#variable-labels) for the full mechanism. When your resolver returns a locale-aware label (keyed off `setLocale()` or any other signal your app uses), `{@name}` emits the localized version automatically — there's no separate API for localized labels.
 
 ### Localized formatting
 

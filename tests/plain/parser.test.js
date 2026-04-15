@@ -91,6 +91,82 @@ describe('plain parser — show', () => {
     })
 })
 
+describe('plain parser — multi-value show', () => {
+    // Multi-value SHOW collects a sequence of values (comma-separated,
+    // space-separated, or mixed) and produces a `show` node with a
+    // `values` array instead of the usual single `value`. The translator
+    // branches on the presence of `values` and emits a join expression —
+    // per-item drop by default, with `+:` when JOINED BY is present, or
+    // `+?` when IF PRESENT is present.
+
+    it('parses comma-separated multi-value SHOW', () => {
+        const ast = P('SHOW city, province, country JOINED BY ", "')
+        expect(ast.type).toBe('show')
+        expect(ast.values).toHaveLength(3)
+        expect(ast.values.map((v) => v.path)).toEqual(['city', 'province', 'country'])
+        expect(ast.modifiers).toEqual([{ type: 'joinedBy', sep: ', ' }])
+    })
+
+    it('parses space-separated multi-value SHOW (commas optional)', () => {
+        // Space juxtaposition works for the literal-prefix pattern
+        // `'Dr. ' title` where commas would read awkwardly.
+        const ast = P("SHOW 'Dr. ' title IF PRESENT")
+        expect(ast.values).toHaveLength(2)
+        expect(ast.values[0]).toEqual({ type: 'string', value: 'Dr. ' })
+        expect(ast.values[1]).toEqual({ type: 'var', path: 'title' })
+        expect(ast.modifiers).toEqual([{ type: 'ifPresent' }])
+    })
+
+    it('parses labeled-row shape (@name, literal separator, name)', () => {
+        const ast = P("SHOW @email, ': ', email IF PRESENT")
+        expect(ast.values).toHaveLength(3)
+        expect(ast.values[0]).toEqual({ type: 'var', path: '@email' })
+        expect(ast.values[1]).toEqual({ type: 'string', value: ': ' })
+        expect(ast.values[2]).toEqual({ type: 'var', path: 'email' })
+        expect(ast.modifiers).toEqual([{ type: 'ifPresent' }])
+    })
+
+    it('parses bare multi-value SHOW with no modifier (default empty-separator join)', () => {
+        const ast = P('SHOW a, b, c')
+        expect(ast.values).toHaveLength(3)
+        expect(ast.modifiers).toEqual([])
+    })
+
+    it('keeps single-value SHOW as a single-value node (not values)', () => {
+        // A SHOW with exactly one value should NOT grow a values array —
+        // single- and multi-value forms are distinct AST shapes so the
+        // translator can branch cleanly and existing tests that read
+        // `ast.value` keep working.
+        const ast = P('SHOW title')
+        expect(ast.value).toBeDefined()
+        expect(ast.values).toBeUndefined()
+    })
+
+    it('rejects WHERE on multi-value SHOW', () => {
+        expect(() => P('SHOW a, b WHERE c')).toThrow(
+            /Multi-value SHOW supports only JOINED BY and IF PRESENT/
+        )
+    })
+
+    it('rejects SORTED BY on multi-value SHOW', () => {
+        expect(() => P('SHOW a, b SORTED BY c')).toThrow(
+            /Multi-value SHOW supports only JOINED BY and IF PRESENT/
+        )
+    })
+
+    it('rejects AS on multi-value SHOW', () => {
+        expect(() => P('SHOW a, b AS text')).toThrow(
+            /Multi-value SHOW supports only JOINED BY and IF PRESENT/
+        )
+    })
+
+    it('rejects combining JOINED BY and IF PRESENT on the same SHOW', () => {
+        expect(() => P("SHOW a, b JOINED BY ', ' IF PRESENT")).toThrow(
+            /cannot be combined/
+        )
+    })
+})
+
 describe('plain parser — if', () => {
     it('parses IF ... SHOW ... OTHERWISE SHOW ...', () => {
         const ast = P('IF age >= 18 SHOW "Adult" OTHERWISE SHOW "Minor"')

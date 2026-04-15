@@ -408,6 +408,145 @@ describe('plain engine — loom passthrough', () => {
     })
 })
 
+// -----------------------------------------------------------------------------
+// Multi-value SHOW — JOINED BY (per-item drop) and IF PRESENT (all-or-nothing)
+// -----------------------------------------------------------------------------
+//
+// Two orthogonal join behaviors surface through Plain. JOINED BY produces a
+// `(+: sep ...)` call into joinWithSeparator, which filters empty items before
+// joining — the canonical "city, province, country" pattern where a missing
+// field should be skipped but the rest should still render. IF PRESENT produces
+// a `(+? ...)` call into joinIfAllTrue, which returns '' if any arg is empty —
+// the canonical "Dr. <title>" pattern where a missing title should drop the
+// whole clause including the prefix.
+//
+// The labeled-row shape `SHOW @field, ': ', field IF PRESENT` composes with
+// the `@name` label sigil: the label side is never empty (the prettify
+// fallback guarantees a non-empty string), so the drop is driven entirely by
+// the value side — which is exactly what authors want.
+
+describe('plain engine — multi-value SHOW', () => {
+    const address = {
+        city: 'Fredericton',
+        province: '',
+        country: 'Canada',
+    }
+    const person = {
+        title: 'Smith',
+        email: '',
+        likes: 0,
+        year: 2024,
+    }
+
+    describe('JOINED BY — per-item drop', () => {
+        it('joins three values with the separator when all present', () => {
+            expect(
+                render("{SHOW city, province, country JOINED BY ', '}", {
+                    ...address,
+                    province: 'NB',
+                })
+            ).toBe('Fredericton, NB, Canada')
+        })
+
+        it('drops the empty middle value cleanly', () => {
+            // Classic address-formatter case — province is empty, so the
+            // output should read "Fredericton, Canada" with a single
+            // comma, not "Fredericton, , Canada".
+            expect(
+                render("{SHOW city, province, country JOINED BY ', '}", address)
+            ).toBe('Fredericton, Canada')
+        })
+
+        it('accepts space-separated values (commas optional)', () => {
+            expect(
+                render("{SHOW city province country JOINED BY ', '}", address)
+            ).toBe('Fredericton, Canada')
+        })
+
+        it('bare multi-value SHOW concatenates with empty separator (per-item drop)', () => {
+            // No JOINED BY, no IF PRESENT: defaults to `(+: '' …)` so
+            // empties drop and the rest concatenate without a separator.
+            const data = { first: 'Ada', middle: '', last: 'Lovelace' }
+            expect(render('{SHOW first, middle, last}', data)).toBe('AdaLovelace')
+        })
+    })
+
+    describe('IF PRESENT — all-or-nothing drop', () => {
+        it('renders the full clause when all values are present', () => {
+            expect(render("{SHOW 'Dr. ' title IF PRESENT}", person)).toBe(
+                'Dr. Smith'
+            )
+        })
+
+        it('drops the entire clause (including literals) when a value is empty', () => {
+            // This is the key difference from JOINED BY: the `'Dr. '`
+            // literal prefix must disappear along with the missing title,
+            // otherwise the output would read "Dr. " with a dangling
+            // prefix.
+            expect(render("{SHOW 'Dr. ' title IF PRESENT}", { title: '' })).toBe('')
+        })
+
+        it('preserves numeric zero (numbers are never empty)', () => {
+            // 0 is a legitimate value to display — "Likes: 0" is
+            // meaningful output, not a falsy drop. This mirrors the
+            // empty-vs-falsy distinction documented in the language
+            // reference: IF PRESENT uses structural emptiness, not
+            // JavaScript truthiness.
+            expect(render("{SHOW 'Likes: ' likes IF PRESENT}", person)).toBe(
+                'Likes: 0'
+            )
+        })
+
+        it('preserves numeric values in the year prefix pattern', () => {
+            expect(render("{SHOW 'Year: ' year IF PRESENT}", person)).toBe(
+                'Year: 2024'
+            )
+        })
+    })
+
+    describe('the labeled row pattern — @name + literal separator + name', () => {
+        // The canonical use of multi-value SHOW + IF PRESENT: author-
+        // facing templates that need "Label: value" rows with automatic
+        // disappearance when the value is missing. The `@name` sigil
+        // retrieves the label; the prettify fallback means the label
+        // side is always non-empty, so the drop is governed solely by
+        // the value side.
+
+        const labels = { email: 'Email address', title: 'Title' }
+        const data = { email: 'ada@example.com', title: '' }
+        const vars = (key) =>
+            key.startsWith('@') ? labels[key.slice(1)] : data[key]
+
+        const loomInstance = new Loom()
+        const run = (tpl) => loomInstance.render(tpl, vars)
+
+        it('renders "Email address: ada@example.com" when email is set', () => {
+            expect(run("{SHOW @email, ': ', email IF PRESENT}")).toBe(
+                'Email address: ada@example.com'
+            )
+        })
+
+        it('drops the whole row (label and separator included) when the value is empty', () => {
+            expect(run("{SHOW @title, ': ', title IF PRESENT}")).toBe('')
+        })
+
+        it('falls back to prettified variable name for labels not in the map', () => {
+            // `first_name` has no entry in `labels`, so the engine's
+            // prettify fallback kicks in and returns "First Name".
+            const full = {
+                email: 'ada@example.com',
+                first_name: 'Ada',
+            }
+            const fullVars = (key) =>
+                key.startsWith('@') ? labels[key.slice(1)] : full[key]
+            const loom = new Loom()
+            expect(
+                loom.render("{SHOW @first_name, ': ', first_name IF PRESENT}", fullVars)
+            ).toBe('First Name: Ada')
+        })
+    })
+})
+
 describe('plain engine — fallback on parse failure', () => {
     it('unknown verb falls through to Loom', () => {
         // "zz" isn't a Plain keyword or a Loom function; result is falsy.

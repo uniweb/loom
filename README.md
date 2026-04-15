@@ -43,12 +43,15 @@ And a realistic one:
 
 ```js
 const profile = {
-    first_name: 'Diego',
-    family_name: 'Macrini',
+    first_name: 'Ada',
+    family_name: 'Lovelace',
+    city: 'London',
+    province: '',                                // unknown
+    country: 'United Kingdom',
     publications: [
-        { title: 'Cellular Bio', year: 2018, refereed: true },
-        { title: 'Forestry', year: 2022, refereed: false },
-        { title: 'Hydrology', year: 2023, refereed: true },
+        { title: 'Notes on the Analytical Engine', year: 1843, refereed: true },
+        { title: 'Observations on Mr Babbage', year: 1842, refereed: false },
+        { title: 'Translator Notes', year: 1844, refereed: true },
     ],
 }
 
@@ -57,14 +60,22 @@ loom.render(
         '{COUNT OF publications WHERE refereed} of them refereed.',
     profile
 )
-// → "Hello Diego! You have 3 publications, 2 of them refereed."
+// → "Hello Ada! You have 3 publications, 2 of them refereed."
 
 loom.render(
     'Recent refereed work: ' +
         '{SHOW publications.title WHERE refereed SORTED BY year DESCENDING JOINED BY ", "}.',
     profile
 )
-// → "Recent refereed work: Hydrology, Cellular Bio."
+// → "Recent refereed work: Translator Notes, Notes on the Analytical Engine."
+
+// Graceful with missing data: `province` is empty, but the rest still renders
+// cleanly with no dangling comma where the missing field should have been.
+loom.render(
+    "Based in {SHOW city, province, country JOINED BY ', '}.",
+    profile
+)
+// → "Based in London, United Kingdom."
 ```
 
 ## Two methods
@@ -143,33 +154,39 @@ Three things Loom does that most template engines don't:
 
 **List-aware by default.** Most functions operate element-by-element on lists. `{+ prices 10}` adds 10 to each price. `{> ages 18}` returns a list of booleans. Accessing a property on a list of objects (`{publications.title}`) returns the list of titles. The stdlib is built around this — filter, sort, join, format, aggregate all work on lists without an explicit loop.
 
-**Graceful with missing data.** In Loom, a value is **empty** if it's `""`, `null`, `undefined`, `NaN`, `[]`, or `{}` — things that shouldn't appear in output. The conditional join drops the enclosing clause if any referenced value is empty:
+**Graceful with missing data.** When a value is missing — `""`, `null`, `undefined`, `NaN`, `[]`, or `{}` — Loom quietly drops the clause that referenced it. No dangling commas, no `"Dr. undefined"`, no broken grammar. This is arguably Loom's single biggest departure from `${template}` literals and Handlebars-style engines, and three patterns cover almost everything:
+
+*Per-item drop* — skip missing pieces, join the rest:
 
 ```
-{+? 'Dr. ' title}
-// → "Dr. Smith"    if title is "Smith"
-// → ""             if title is missing
+{SHOW city, province, country JOINED BY ', '}
+// all three set  → "Fredericton, NB, Canada"
+// province empty → "Fredericton, Canada"     (no dangling comma)
 ```
 
-This is how you write `{', ' city province country}` and have it gracefully collapse to `"Fredericton, Canada"` when `province` is missing — no double commas, no dangling separators.
+The classic address formatter. Each empty field vanishes without leaving a hole in the output.
 
-Numbers are never empty — `0` is a legitimate value and joins into output normally:
-
-```
-{+? 'Likes: ' likes}
-// → "Likes: 0"     if likes is 0
-// → ""             if likes is null or missing
-```
-
-For conditional logic (rather than output), the ternary `?` uses a broader "falsy" check where `0`, `false`, and empty collections all count as false:
+*All-or-nothing drop* — render the whole phrase, or nothing at all:
 
 ```
-{? likes 'has likes' 'no likes'}
-// likes = 0     → "no likes"
-// likes = 5     → "has likes"
+{SHOW 'Dr. ' title IF PRESENT}
+// title = "Smith" → "Dr. Smith"
+// title = ""      → ""          (entire clause drops, prefix included)
 ```
 
-The split is deliberate: **empty** is about "should this drop from output?" and **falsy** is about "is this a false condition?" Most users never have to think about the distinction — it just does the right thing.
+Literal strings like `'Dr. '` never trigger the drop — only variable references can. That's what makes it safe to write a literal prefix without worrying about it dangling when the variable is missing.
+
+*Labeled rows* — combine with the [`@name`](#variable-labels) label sigil for drop-safe "Label: value" output:
+
+```
+{SHOW @email, ': ', email IF PRESENT}
+// email = "a@b.com" → "Email address: a@b.com"
+// email = ""        → ""    (whole row drops, label and separator included)
+```
+
+The label side is never empty — a prettify fallback turns `first_name` into `"First Name"` when no override exists — so the drop is driven entirely by the value side. Exactly what you want.
+
+**Numbers are never empty.** `0` is a legitimate value and renders normally: `{SHOW 'Likes: ' likes IF PRESENT}` with `likes = 0` produces `"Likes: 0"`, not `""`. For conditional *logic* (rather than output), the ternary `?` uses a broader "falsy" check where `0`, `false`, and empty collections all count as false. The split is deliberate: **empty** is about "should this drop from output?" and **falsy** is about "is this a false condition?" Most users never have to think about the distinction — it just does the right thing.
 
 **Inline pipelines.** Filter → sort → join → format → label is a single expression, not a chain of helpers. A realistic report line:
 
@@ -214,6 +231,37 @@ loom.evaluateText('slug "My Great Title"')     // → "my-great-title"
 ```
 
 Custom functions receive `(flags, ...args)` — `flags` is the parsed option bag, `args` are the positional arguments.
+
+## Variable labels
+
+Prefix a variable with `@` to retrieve its **label** instead of its value. This is how you produce "Label: value" output without hard-coding the label text into the template:
+
+```js
+const labels = { user_email: 'Email address', dob: 'Date of birth' }
+const data = { user_email: 'a@b.com', dob: '1990-01-01', first_name: 'Ada' }
+
+const vars = (key) =>
+    key.startsWith('@') ? labels[key.slice(1)] : data[key]
+
+loom.render(
+    '{@user_email}: {user_email}\n{@first_name}: {first_name}',
+    vars
+)
+// → "Email address: a@b.com
+//    First Name: Ada"
+```
+
+When the label resolver returns nothing for a given field, Loom **falls back to prettifying the variable name itself** (`first_name` → `"First Name"`, underscores replaced with spaces and title-cased). So the common pattern is a small map of overrides that catches the cases that need custom wording, while every other field prettifies for free. The same mechanism carries localized labels when your resolver is locale-aware.
+
+For rows that should vanish when the value is empty, use Plain's `SHOW … IF PRESENT` so the whole clause drops together — otherwise the simple `{@field}: {field}` form would leave the label hanging:
+
+```
+{SHOW @email, ': ', email IF PRESENT}
+// email = "a@b.com"  → "Email: a@b.com"
+// email = ""         → ""   (entire row drops)
+```
+
+See the [language reference](./docs/language.md#variable-labels) for the full pattern.
 
 ## The lower layer: `@uniweb/loom/core`
 

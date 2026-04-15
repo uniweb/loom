@@ -10,6 +10,7 @@
  * AST node shapes (all optional fields omitted when absent):
  *
  *   { type: 'show',    value: Node, modifiers: Modifier[] }
+ *   { type: 'show',    values: Node[], modifiers: Modifier[] }     // multi-value
  *   { type: 'if',      condition: Node, thenBranch: Node, elseBranch?: Node }
  *   { type: 'count',   value: Node, where?: Node }
  *   { type: 'sum',     value: Node }
@@ -29,6 +30,7 @@
  *   { type: 'sortedBy',   value: Node, order: 'asc' | 'desc' }
  *   { type: 'joinedBy',   sep: string }
  *   { type: 'where',      condition: Node }
+ *   { type: 'ifPresent' }                               // flag modifier, no args
  *
  * FormatSpec is either { raw: string } (from a quoted format literal) or
  * { type: string, value?: string } (from bare words like "long date",
@@ -81,6 +83,7 @@ const MODIFIER_KEYWORDS = [
     ['sorted', 'by'],
     ['joined', 'by'],
     ['with', 'label'],
+    ['if', 'present'],
     ['where'],
     ['as'],
     ['if'],
@@ -250,6 +253,14 @@ function parseFunctionCall(p) {
     while (p.i < p.tokens.length) {
         const t = peek(p)
         if (!t) break
+        // Commas between arguments are optional — treat them as
+        // whitespace-equivalent so `{fn a, b, c}` and `{fn a b c}` parse
+        // the same. A comma that appears where an argument is expected
+        // is silently skipped.
+        if (t.type === 'comma') {
+            advance(p)
+            continue
+        }
         // Stop at anything that can't be an argument: closing paren,
         // infix operators, or a word that matches a modifier keyword
         // (which belongs to the outer show-node, not to the arg list).
@@ -264,20 +275,77 @@ function parseFunctionCall(p) {
 }
 
 function parseShowBody(p) {
-    const value = parseValue(p)
-    if (value == null) {
+    // Greedy value collection: parse values until we hit something that
+    // isn't a value (a modifier keyword, a closing paren, an operator,
+    // or the end of input). Commas between values are optional — both
+    // `SHOW 'Dr. ' title IF PRESENT` and `SHOW city, province, country
+    // JOINED BY ', '` are accepted. This lets authors pick whichever
+    // reads better: commas when the values are a list, juxtaposition
+    // when they're a label + value or prefix + value pair.
+    const values = parseValueList(p)
+    if (values.length === 0) {
         const t = peek(p)
         const got = t ? `${t.type}:${t.value}` : 'end of input'
         throw new PlainParseError(`Expected a value, got ${got}`)
     }
+
     const modifiers = parseModifiers(p)
-    // If there are modifiers, or the value is plain, wrap as a 'show' node.
-    if (modifiers.length === 0 && isAtomValue(value)) {
-        // Bare value — still wrap as 'show' so the translator handles it
-        // uniformly.
-        return { type: 'show', value, modifiers: [] }
+
+    if (values.length > 1) {
+        // Multi-value SHOW supports only JOINED BY and IF PRESENT as
+        // modifiers — the join semantics are well-defined for those two.
+        // Other modifiers (WHERE, SORTED BY, AS, WITH LABEL) would have
+        // ambiguous meaning across N parallel values and are rejected
+        // here so users get a clear error instead of silent surprise.
+        for (const m of modifiers) {
+            if (m.type !== 'joinedBy' && m.type !== 'ifPresent') {
+                throw new PlainParseError(
+                    `Multi-value SHOW supports only JOINED BY and IF PRESENT (got ${m.type})`
+                )
+            }
+        }
+        const hasJoin = modifiers.some((m) => m.type === 'joinedBy')
+        const hasIfPresent = modifiers.some((m) => m.type === 'ifPresent')
+        if (hasJoin && hasIfPresent) {
+            throw new PlainParseError(
+                `JOINED BY and IF PRESENT cannot be combined on the same SHOW`
+            )
+        }
+        return { type: 'show', values, modifiers }
     }
-    return { type: 'show', value, modifiers }
+
+    // Single-value form — unchanged from the original parseShowBody shape.
+    const first = values[0]
+    if (modifiers.length === 0 && isAtomValue(first)) {
+        return { type: 'show', value: first, modifiers: [] }
+    }
+    return { type: 'show', value: first, modifiers }
+}
+
+/**
+ * Greedy value-list parser shared by multi-value SHOW and function-call
+ * argument collection. Parses values one at a time, stopping at any
+ * non-value token (modifier keyword at this position, closing paren,
+ * operator, or end of input). Commas between values are optional and
+ * consumed as whitespace-equivalent separators.
+ */
+function parseValueList(p) {
+    const values = []
+    while (p.i < p.tokens.length) {
+        const t = peek(p)
+        if (!t) break
+        if (t.type === 'comma') {
+            advance(p)
+            continue
+        }
+        if (t.type === 'rparen') break
+        if (t.type === 'operator') break
+        if (t.type === 'word' && peekKeyword(p, MODIFIER_KEYWORDS)) break
+        const val = parseValue(p)
+        if (val == null) break
+        values.push(val)
+    }
+    return values
 }
 
 function isAtomValue(node) {
@@ -351,6 +419,11 @@ function parseModifiers(p) {
             case 'IF': {
                 consumeKeyword(p, kw)
                 mods.push({ type: 'where', condition: parseCondition(p) })
+                break
+            }
+            case 'IF PRESENT': {
+                consumeKeyword(p, kw)
+                mods.push({ type: 'ifPresent' })
                 break
             }
             default:

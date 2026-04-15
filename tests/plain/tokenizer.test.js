@@ -83,9 +83,10 @@ describe('plain tokenizer — atoms', () => {
         expect(values(t)).toEqual(['hello', 'world'])
     })
 
-    it('drops commas', () => {
+    it('emits commas as distinct tokens', () => {
         const t = tokenize('a, b, c')
-        expect(values(t)).toEqual(['a', 'b', 'c'])
+        expect(types(t)).toEqual(['word', 'comma', 'word', 'comma', 'word'])
+        expect(values(t)).toEqual(['a', ',', 'b', ',', 'c'])
     })
 })
 
@@ -188,5 +189,11 @@ describe('matchKeywordAt — position-aware keyword lookup', () => {
         const tokens = tokenize('pubs SORTED BY year')
         const m = matchKeywordAt(tokens, 1, SORTED_BY_PHRASE)
         expect(m).toEqual({ canonical: 'SORTED BY', length: 2 })
+    })
+
+    it('matches IF PRESENT as a multi-word phrase (two-word join modifier)', () => {
+        const tokens = tokenize('title IF PRESENT')
+        const m = matchKeywordAt(tokens, 1, [['if', 'present']])
+        expect(m).toEqual({ canonical: 'IF PRESENT', length: 2 })
     })
 })

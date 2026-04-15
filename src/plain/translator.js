@@ -86,6 +86,17 @@ function translateCall(node) {
 }
 
 function translateShow(node) {
+    // Multi-value SHOW (`SHOW a, b, c JOINED BY ', '` /
+    // `SHOW 'Dr. ' title IF PRESENT`) is a distinct form with its own
+    // translation — it can't share the single-value modifier pipeline
+    // because WHERE/SORT/AS etc. have no well-defined meaning across N
+    // parallel values. The parser rejects those modifier combinations
+    // at parse time, so by this point we know the modifiers are limited
+    // to JOINED BY and/or IF PRESENT.
+    if (node.values) {
+        return translateMultiValueShow(node)
+    }
+
     // The "list root" is the prefix path used to scope bare identifiers
     // in WHERE conditions. For `SHOW pubs.title WHERE refereed`, the root
     // is `pubs`, and `refereed` gets rewritten to `pubs.refereed` so the
@@ -166,6 +177,43 @@ function translateShow(node) {
     }
 
     return expr
+}
+
+/**
+ * Translate a multi-value SHOW into a Compact join expression.
+ *
+ * Three shapes come out of the parser for multi-value SHOW:
+ *
+ *   SHOW a, b, c                          → `(+: '' a b c)`
+ *       concatenation with per-item drop (empties are skipped before
+ *       joining). Equivalent to the `{'' a b c}` Compact idiom. The
+ *       explicit empty separator keeps all behavior in `joinWithSeparator`
+ *       rather than relying on the unlabeled-joiner default.
+ *
+ *   SHOW a, b, c JOINED BY ', '           → `(+: ', ' a b c)`
+ *       per-item drop with an explicit separator. `joinWithSeparator`
+ *       filters empty items before joining, matching the per-item drop
+ *       semantics authors expect from "city, province, country" style
+ *       expressions.
+ *
+ *   SHOW 'Dr. ' title IF PRESENT          → `(+? 'Dr. ' title)`
+ *       all-or-nothing: `joinIfAllTrue` returns '' if any arg is empty,
+ *       otherwise concatenates them with no separator. Literal strings
+ *       are always non-empty, so they never trigger the drop — only
+ *       variable references can cause the clause to collapse.
+ *
+ * The parser guarantees JOINED BY and IF PRESENT can't both appear on
+ * the same SHOW, so there's no ambiguity to resolve here.
+ */
+function translateMultiValueShow(node) {
+    const pieces = node.values.map(nested)
+    const ifPresent = node.modifiers.some((m) => m.type === 'ifPresent')
+    if (ifPresent) {
+        return `(+? ${pieces.join(' ')})`
+    }
+    const joinedBy = node.modifiers.find((m) => m.type === 'joinedBy')
+    const sep = joinedBy ? joinedBy.sep : ''
+    return `(+: ${quote(sep)} ${pieces.join(' ')})`
 }
 
 function translateIf(node) {
