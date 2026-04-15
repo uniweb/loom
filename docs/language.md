@@ -1027,30 +1027,94 @@ For `101`, verify the variable name; for `102`/`104`, check you're using a valid
 
 ## Localization
 
-Loom has built-in hooks for localization, but it's the caller's responsibility to provide localized values through the variable resolver.
+Loom's most powerful multi-language feature is what it *doesn't* require: **one template, every language, zero template duplication.** You write the report, the CV, the data sheet once, and the same template renders in every language you support by swapping the variable resolver. No translation markers in the template, no per-locale template copies, no build step that generates variants.
 
-### Localizable strings
+The mechanism is the variable resolver doing double duty: it returns locale-aware **values** when a template asks for `field`, and locale-aware **labels** when a template asks for `@field`. Same resolver, both jobs — which means both sides of the localization problem (what the field is called and what value it holds) flow through a single function that your app controls.
 
-A common pattern stores translations as a map keyed by locale code:
+### The pattern in one example
 
-```json
-{
-    "en": "Hello",
-    "fr": "Bonjour",
-    "es": "Hola"
+```js
+import { Loom } from '@uniweb/loom'
+
+const loom = new Loom()
+
+// Data — individual fields can be localizable objects or plain strings.
+// A plain string isn't locale-sensitive (like a proper name) and passes
+// through unchanged.
+const profile = {
+    name: 'Ada Lovelace',
+    title:   { en: 'Mathematician',  fr: 'Mathématicienne' },
+    city:    { en: 'London',         fr: 'Londres' },
+    country: { en: 'United Kingdom', fr: 'Royaume-Uni' },
+    email:   'ada@example.com',
 }
+
+// Labels — one map per locale, keyed by variable name.
+const labels = {
+    en: { title: 'Title', city: 'City', country: 'Country', email: 'Email' },
+    fr: { title: 'Titre', city: 'Ville', country: 'Pays',   email: 'Courriel' },
+}
+
+// A single resolver factory that routes every lookup through the
+// requested locale. `@name` hits the label map; bare names hit the
+// profile and unwrap localizable-object values to the current locale.
+function makeResolver(locale) {
+    return (key) => {
+        if (key.startsWith('@')) return labels[locale][key.slice(1)]
+        const value = profile[key]
+        return value && typeof value === 'object' && locale in value
+            ? value[locale]
+            : value
+    }
+}
+
+// One template, two locales.
+const template =
+    '{SHOW @title, ": ", title IF PRESENT}\n' +
+    '{SHOW @city, ": ", city IF PRESENT}\n' +
+    '{SHOW @email, ": ", email IF PRESENT}'
+
+loom.render(template, makeResolver('en'))
+// → "Title: Mathematician
+//    City: London
+//    Email: ada@example.com"
+
+loom.render(template, makeResolver('fr'))
+// → "Titre: Mathématicienne
+//    Ville: Londres
+//    Courriel: ada@example.com"
 ```
 
-Access translations with dot notation or the `.` accessor:
+Everything in that example is orthogonal: the template doesn't mention locales, the data is plain JavaScript, and the resolver is ~10 lines. Swap `'en'` for `'fr'` and the same report comes out in French. Add a third locale to `labels` and the `value[locale]` fields, and you have a trilingual report — no template changes.
+
+Note how localization composes with the [graceful missing-data](#multi-value-show) patterns for free: `{SHOW @email, ": ", email IF PRESENT}` drops the whole row in whichever language is active, because the row structure is template-level and the language choice is resolver-level. They don't know about each other.
+
+### Labels and the prettify fallback
+
+In the example, `labels[locale]` covers every field explicitly. If a variable isn't in the map, Loom's [prettify fallback](#variable-labels) kicks in and returns a title-cased version of the variable name itself. That's English-friendly but locale-agnostic, so for languages where the default isn't good enough, spell out the label in the map. Return `undefined` (or don't include the key) to trigger the fallback; return an explicit string to override it.
+
+### Localizable strings accessed directly
+
+The `{title.fr}` dotted-access form still works and is sometimes useful when you want to reach into a localizable object without the resolver abstraction — for example, to show a specific language inside a mostly-single-language template:
 
 ```
 {greeting.es}            // "Hola"
-{. '@lang' greeting}     // current-locale translation
 ```
 
-### Localized variable labels
+The resolver pattern is more composable (one locale decision, whole template respects it), but direct access is there when you want it.
 
-See [Variable labels](#variable-labels) for the full mechanism. When your resolver returns a locale-aware label (keyed off `setLocale()` or any other signal your app uses), `{@name}` emits the localized version automatically — there's no separate API for localized labels.
+### `@lang` as a convention
+
+If your template needs to pivot on the current locale — for example, picking different phrasing in English vs. French — a common convention is to make `@lang` a resolver key that returns the locale code:
+
+```js
+const resolver = (key) => {
+    if (key === '@lang') return currentLocale
+    // ... rest of the resolver
+}
+```
+
+Then templates can read it with `{@lang}` or use it inside conditionals. This is a convention, not a built-in — Loom doesn't treat `@lang` specially; it's just that `@`-prefixed names are already used for metadata, so they read naturally for a locale hint.
 
 ### Localized formatting
 
@@ -1061,6 +1125,8 @@ import { setLocale } from '@uniweb/loom'
 
 setLocale('fr-CA')
 ```
+
+`setLocale` is a process-wide setting that governs `#`'s number/date/currency formatting. It's independent of the resolver-based localization above — you typically set it alongside whatever other locale logic your app runs (for example, inside `makeResolver` before returning the function).
 
 ## The core-only package
 

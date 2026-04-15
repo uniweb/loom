@@ -150,7 +150,7 @@ Multi-word keyword prefixes (`count of`, `total of`, `sum of`, `average of`, `fo
 
 ## What makes it different
 
-Three things Loom does that most template engines don't:
+Four things Loom does that most template engines don't:
 
 **List-aware by default.** Most functions operate element-by-element on lists. `{+ prices 10}` adds 10 to each price. `{> ages 18}` returns a list of booleans. Accessing a property on a list of objects (`{publications.title}`) returns the list of titles. The stdlib is built around this — filter, sort, join, format, aggregate all work on lists without an explicit loop.
 
@@ -194,6 +194,41 @@ The label side is never empty — a prettify fallback turns `first_name` into `"
 Awarded {TOTAL OF grants.amount AS currency USD} across {COUNT OF grants} grants,
 averaging {AVERAGE OF grants.amount AS currency USD} each.
 ```
+
+**Multilingual by design.** One template renders in every language you support — no per-locale copies, no translation markers in the template, no build step. The variable resolver does double duty: it returns locale-aware **values** when a template asks for `field`, and locale-aware **labels** when a template asks for `@field`. Swap the resolver, same template, different language:
+
+```js
+const profile = {
+    title:   { en: 'Mathematician',  fr: 'Mathématicienne' },
+    city:    { en: 'London',         fr: 'Londres' },
+    country: { en: 'United Kingdom', fr: 'Royaume-Uni' },
+}
+
+const labels = {
+    en: { title: 'Title', city: 'City', country: 'Country' },
+    fr: { title: 'Titre', city: 'Ville', country: 'Pays' },
+}
+
+const makeResolver = (locale) => (key) => {
+    if (key.startsWith('@')) return labels[locale][key.slice(1)]
+    const v = profile[key]
+    return v && typeof v === 'object' && locale in v ? v[locale] : v
+}
+
+const template =
+    '{@title}: {title}\n' +
+    '{@city}: {city}, {country}'
+
+loom.render(template, makeResolver('en'))
+// → "Title: Mathematician
+//    City: London, United Kingdom"
+
+loom.render(template, makeResolver('fr'))
+// → "Titre: Mathématicienne
+//    Ville: Londres, Royaume-Uni"
+```
+
+Loom has been used in production for bilingual Canadian academic CVs since ~2018, where the same report template generates English and French outputs from a single data source. Localization composes with graceful missing-data handling for free — a drop-safe labeled row like `{SHOW @email, ': ', email IF PRESENT}` disappears in whichever language is active, because the row structure is template-level and the language choice is resolver-level. They don't know about each other. See the [language reference](./docs/language.md#localization) for the full pattern.
 
 ## Snippets
 
@@ -363,7 +398,7 @@ Full docs live in [`docs/`](./docs/):
 
 ## Status
 
-Stable core API (`render`, `evaluateText`, snippets, custom functions). 175 tests cover the evaluator, both surface forms, snippets, and report-style templates. Used in production for academic CV and funding reports.
+Stable core API (`render`, `evaluateText`, snippets, custom functions). 254 tests cover the evaluator, both surface forms, snippets, and report-style templates. Used in production since ~2018 for bilingual (English/French) academic CVs and funding reports at Canadian universities — the same template generates both languages from one data source.
 
 ## See also
 
