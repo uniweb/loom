@@ -351,7 +351,7 @@ const resolved = instantiateContent(doc, loom, (key) => profile[key])
 
 The function returns a new tree with every text node's `text` field run through `engine.render()`. The input is not mutated.
 
-The primary consumer is a Uniweb foundation's content handler, which instantiates a report template against a freshly-fetched profile before it ever reaches the renderer:
+The primary consumer is a Uniweb foundation's content handler, which runs at render time with the block's fully assembled data (prerender fetches and runtime entity data merged together). The handler receives `(data, block)`, reads the raw ProseMirror tree from `block.rawContent`, hands it to `instantiateContent`, and returns the transformed tree. The framework re-parses the result and passes the instantiated content to the component.
 
 ```js
 // foundation.js
@@ -361,14 +361,22 @@ const engine = new Loom()
 
 export default {
     handlers: {
-        content(content, block) {
-            const data = block.content?.data
-            if (!data) return content
-            return instantiateContent(content, engine, (key) => data[key])
-        },
+        content: (data, block) =>
+            instantiateContent(block.rawContent, engine, (key) => data[key]),
     },
 }
 ```
+
+**Wrapped ProseMirror gotcha.** `instantiateContent` walks the unwrapped ProseMirror shape (`{ type: 'doc', content: [...] }`). If `block.rawContent` arrives in the content-API envelope (`{ doc: { type: 'doc', ... } }`), unwrap it first — otherwise the walker silently no-ops on the outer object and placeholders are left in place:
+
+```js
+content: (data, block) => {
+    const doc = block.rawContent?.doc ?? block.rawContent
+    return instantiateContent(doc, engine, (key) => data[key])
+}
+```
+
+The framework's re-parse step handles both shapes; only Loom's walker is sensitive to the wrapping.
 
 ## API
 
