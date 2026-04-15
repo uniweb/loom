@@ -351,7 +351,7 @@ const resolved = instantiateContent(doc, loom, (key) => profile[key])
 
 The function returns a new tree with every text node's `text` field run through `engine.render()`. The input is not mutated.
 
-The primary consumer is a Uniweb foundation's content handler, which runs at render time with the block's fully assembled data (prerender fetches and runtime entity data merged together). The handler receives `(data, block)`, reads the raw ProseMirror tree from `block.rawContent`, hands it to `instantiateContent`, and returns the transformed tree. The framework re-parses the result and passes the instantiated content to the component.
+The primary consumer is a Uniweb foundation's content handler, which runs at render time with the block's fully assembled data (prerender fetches and runtime entity data merged together). The handler receives `(data, block)`, reads the raw ProseMirror tree from `block.rawContent`, hands it to `instantiateContent` along with the data object that placeholders resolve against, and returns the transformed tree. The framework re-parses the result and passes the instantiated content to the component.
 
 ```js
 // foundation.js
@@ -361,18 +361,29 @@ const engine = new Loom()
 
 export default {
     handlers: {
-        content: (data, block) =>
-            instantiateContent(block.rawContent, engine, (key) => data[key]),
+        content: (data, block) => {
+            // If the page declares `data: profile`, data.profile is an
+            // array of collection items. The single-profile case flattens
+            // to the one item. For multi-source pages, merge everything
+            // into one vars object before passing to the walker.
+            const profile = data?.profile?.[0]
+            if (!profile) return null
+            return instantiateContent(block.rawContent, engine, profile)
+        },
     },
 }
 ```
+
+**Always pass the vars as a plain object, not a resolver function.** `instantiateContent` forwards the third argument directly to `Loom.render` as `vars`. When `vars` is an object, Loom uses its internal `getProperty()` walker, which resolves dot paths into nested objects, arrays, and Maps — so `{publications.title}`, `{funding.0.amount}`, and `{COUNT OF publications WHERE type = 'book'}` all work. If you pass `(key) => data[key]`, Loom uses your function verbatim and your resolver receives the full dotted key as a single string (`'publications.title'`) — which is almost certainly not what you want. Use the object form.
 
 **Wrapped ProseMirror gotcha.** `instantiateContent` walks the unwrapped ProseMirror shape (`{ type: 'doc', content: [...] }`). If `block.rawContent` arrives in the content-API envelope (`{ doc: { type: 'doc', ... } }`), unwrap it first — otherwise the walker silently no-ops on the outer object and placeholders are left in place:
 
 ```js
 content: (data, block) => {
+    const profile = data?.profile?.[0]
+    if (!profile) return null
     const doc = block.rawContent?.doc ?? block.rawContent
-    return instantiateContent(doc, engine, (key) => data[key])
+    return instantiateContent(doc, engine, profile)
 }
 ```
 
