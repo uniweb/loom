@@ -33,5 +33,6 @@
 export { default as Loom } from './engine.js'
 export { instantiateContent, instantiateRepeated } from './instantiate.js'
 export { splitAtDividers } from './split.js'
+export { createLoomHandlers } from './handler.js'
 export { findEnclosures, parseSnippets } from './core/tokenizer.js'
 export { setLocale, getProperty } from './core/functions.js'
