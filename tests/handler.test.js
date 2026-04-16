@@ -215,7 +215,7 @@ describe('createLoomHandlers', () => {
     it('filters with comparison expression', () => {
       const block = makeBlock(
         [heading('Late works'), divider, para('{title} ({year})')],
-        { source: 'publications', where: "year > '1860'" }
+        { source: 'publications', where: "year > 1860" }
       )
       const result = handlers.content({ profile: [profile] }, block)
       // header + 1 item (Climbing Plants 1875)

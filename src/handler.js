@@ -26,7 +26,7 @@ import Loom from './engine.js'
  *   field containing a Loom filter expression. When set, the source
  *   array is filtered before iteration — only items where the
  *   expression evaluates to truthy are included. Expressions use
- *   Plain form: `type = 'book'`, `year > '1870'`,
+ *   Plain form: `type = 'book'`, `year > 1870`,
  *   `type = 'book' AND refereed`, or a bare truthy check like
  *   `refereed`. Set to `null` to disable.
  * @returns {{ content: Function }} Handlers object for foundation.js

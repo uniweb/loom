@@ -499,7 +499,7 @@ where: "type = 'book'"
 **{title}** ({year})
 ```
 
-`where` uses Plain-form Loom expressions: `type = 'book'` (equality), `year > '1870'` (comparison), `refereed` (truthy check), `type = 'book' AND refereed` (boolean combination). Aggregate expressions in the header reflect the filtered set.
+`where` uses Plain-form Loom expressions: `type = 'book'` (equality), `year > 1870` (comparison), `refereed` (truthy check), `type = 'book' AND refereed` (boolean combination). Aggregate expressions in the header reflect the filtered set.
 
 ## API
 
