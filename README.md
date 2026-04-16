@@ -389,6 +389,102 @@ content: (data, block) => {
 
 The framework's re-parse step handles both shapes; only Loom's walker is sensitive to the wrapping.
 
+## Content splitting and iteration
+
+When a markdown section uses `---` dividers, they create boundaries between content regions. Loom provides utilities for splitting a ProseMirror document at those boundaries and instantiating each region with different data — the pattern behind data-driven sections like CVs, reports, catalogs, and directories.
+
+### `splitAtDividers(nodes)`
+
+Splits a ProseMirror content array at divider nodes. Returns an array of segments — one per region between dividers. Divider nodes are consumed.
+
+```js
+import { splitAtDividers } from '@uniweb/loom'
+
+const segments = splitAtDividers(doc.content)
+
+// Destructure by position for common patterns:
+const [header, body, footer] = splitAtDividers(doc.content)  // 3-part
+const [before, after] = splitAtDividers(doc.content)          // 2-part
+```
+
+A document with no dividers returns a single-element array. An empty or non-array input returns `[[]]`.
+
+### `instantiateRepeated(doc, engine, vars, field)`
+
+The split-iterate-reassemble pattern in one call. Splits the document at `---` dividers, instantiates the header once against the full data, repeats the body per item in the named data array, and instantiates the footer once.
+
+```js
+import { Loom, instantiateRepeated } from '@uniweb/loom'
+
+const loom = new Loom()
+const result = instantiateRepeated(doc, loom, profile, 'education')
+```
+
+The `field` argument is a dot-path string resolved via `getProperty` — `'academic.publications'` and `'data.0.items'` both work.
+
+**Segment rules:**
+- 2 segments (one divider): header + body (no footer)
+- 3+ segments (two+ dividers): header + body + footer (footer preceded by a divider node)
+- Each body iteration merges the item's fields into the vars namespace: `{ ...vars, ...item }`
+
+Falls back to plain `instantiateContent` when the resolved field is not an array, is empty, or the document has no dividers.
+
+### `getProperty(path, value)`
+
+Loom's dot-path resolver. Navigates nested objects, arrays, and Maps. When the path crosses an array of objects, it maps automatically.
+
+```js
+import { getProperty } from '@uniweb/loom'
+
+getProperty('name', profile)                    // → 'Ada'
+getProperty('education.0.degree', profile)      // → 'BA'
+getProperty('publications.title', profile)      // → ['Paper A', 'Paper B', ...]
+getProperty('academic.awards', profile)         // → nested access
+```
+
+Parameter order is **path first, data second**.
+
+### `createLoomHandlers(options)`
+
+A factory that creates a Uniweb foundation `handlers` object. Encapsulates the common content handler pattern — a foundation passes a vars extractor and gets back a handler that reads the `source` frontmatter param to choose between simple instantiation and the repeat pattern.
+
+```js
+import { createLoomHandlers } from '@uniweb/loom'
+
+// foundation.js — minimal setup
+export default {
+  handlers: createLoomHandlers({
+    vars: (data) => data?.profile?.[0],
+  }),
+}
+```
+
+**Options:**
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `vars` | `(data) => object` | *required* | Extracts the Loom variable namespace from assembled data |
+| `engine` | `Loom` instance | `new Loom()` | Custom Loom instance (with snippets or custom functions) |
+| `sourceParam` | `string \| null` | `'source'` | Frontmatter field for the data array to iterate. `null` disables. |
+
+**How it works:** The returned `content` handler reads `block.properties[sourceParam]`. Without it, the handler calls `instantiateContent` (simple substitution). With it, the handler calls `instantiateRepeated` (split-iterate-reassemble). The `vars` function extracts the Loom variable namespace from the block's assembled data.
+
+**The `source` convention:** Sections declare `source: fieldName` in frontmatter to indicate which data array to iterate. A `---` divider in the markdown separates the header (rendered once) from the body (repeated per item). A second `---` starts a footer (rendered once after all items):
+
+```markdown
+---
+type: CvEntry
+source: education
+---
+# Education
+{COUNT OF education} degrees earned.
+---
+## {degree}
+{institution} — {field} ({start}–{end})
+---
+Total: {COUNT OF education} entries.
+```
+
 ## API
 
 ```js
