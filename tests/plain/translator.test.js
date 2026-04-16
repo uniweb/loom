@@ -105,27 +105,37 @@ describe('plain translator — conditionals', () => {
 })
 
 describe('plain translator — sorting', () => {
+    // When the SHOW value is a dotted path, the translator restructures:
+    // sort the full object array first, then extract the display field.
+    // This ensures -by=field can access the sort property on each object.
     it('SORTED BY (default ascending)', () => {
         expect(T('SHOW publications.title SORTED BY publications.date')).toBe(
-            '>> -by=date publications.title'
+            ". 'title' (>> -by=date publications)"
         )
     })
 
     it('SORTED BY ... DESCENDING', () => {
         expect(T('SHOW publications.title SORTED BY publications.date DESCENDING')).toBe(
-            '>> -desc -by=date publications.title'
+            ". 'title' (>> -desc -by=date publications)"
         )
     })
 
     it('FROM LOWEST TO HIGHEST', () => {
         expect(T('SHOW publications.title FROM LOWEST TO HIGHEST publications.date')).toBe(
-            '>> -by=date publications.title'
+            ". 'title' (>> -by=date publications)"
         )
     })
 
     it('FROM HIGHEST TO LOWEST', () => {
         expect(T('SHOW publications.title FROM HIGHEST TO LOWEST publications.date')).toBe(
-            '>> -desc -by=date publications.title'
+            ". 'title' (>> -desc -by=date publications)"
+        )
+    })
+
+    it('SORTED BY on a bare (non-dotted) path wraps normally', () => {
+        // No dotted path, no restructuring needed — scalar sort.
+        expect(T('SHOW items SORTED BY name')).toBe(
+            '>> -by=name items'
         )
     })
 })
@@ -205,19 +215,17 @@ describe('plain translator — aggregation', () => {
 })
 
 describe('plain translator — composition', () => {
-    it('WHERE + SORTED BY + JOINED BY (WHERE condition prefixed)', () => {
-        // Note: combining WHERE with SORTED BY and a *projected* list
-        // like publications.title has a semantic limitation — the filtered
-        // result is a list of strings with no `date` property to sort by.
-        // For correct ordering, sort the full list first, then filter.
-        // This test just verifies the translation shape; semantics are
-        // documented in plain.md.
+    it('WHERE + SORTED BY + JOINED BY (full-object restructuring)', () => {
+        // The sort-restructuring pre-pass starts expr as the list root
+        // (full objects), so WHERE filters objects and SORTED BY sorts
+        // them by a real property. The display field is extracted after
+        // the sort, before the join.
         expect(
             T(
                 'SHOW publications.title WHERE refereed SORTED BY date DESCENDING JOINED BY ", "'
             )
         ).toBe(
-            "+: ', ' (>> -desc -by=date (? publications.refereed publications.title))"
+            "+: ', ' (. 'title' (>> -desc -by=date (? publications.refereed publications)))"
         )
     })
 })

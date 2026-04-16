@@ -596,6 +596,14 @@ function parseNot(p) {
         advance(p)
         return { type: 'unop', op: '!', arg: parseNot(p) }
     }
+    // Parenthesized boolean sub-expression: recurse into the full
+    // condition grammar so `WHERE NOT (draft OR archived)` parses.
+    if (t && t.type === 'lparen') {
+        advance(p)
+        const inner = parseOr(p)
+        expect(p, 'rparen')
+        return { type: 'group', inner }
+    }
     return parseComparison(p)
 }
 

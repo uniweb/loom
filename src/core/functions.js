@@ -16,7 +16,7 @@ import { currency_code } from './currency_code.js';
  * are the same as those of the option flag "X".
  */
 const OPTIONS = {
-    '>>': { prop: '*', desc: true, date: true },
+    '>>': { prop: '*', by: '*', desc: true, date: true },
     '#': {
         currency: '*',
         row: '*', // split string by | (like in a markdown table row)
@@ -1155,9 +1155,23 @@ function sortValues(flags, args) {
     return args.sort((a, b) => dir * fn(flags, a, b));
 }
 
+/**
+ * Extract the sort key from an item, honoring the `-by=field` flag.
+ * When `-by` is present and the item is an object, looks up that
+ * property. Falls back to getFirstValue() when `-by` is absent or
+ * the item is a scalar.
+ */
+function getSortKey(input, flags) {
+    if (flags.by && isObject(input) && !isArray(input)) {
+        const val = input[flags.by];
+        return val !== undefined ? val : getFirstValue(input);
+    }
+    return getFirstValue(input);
+}
+
 function sortDateValues(flags, a, b) {
-    let aValue = getFirstValue(a);
-    let bValue = getFirstValue(b);
+    let aValue = getSortKey(a, flags);
+    let bValue = getSortKey(b, flags);
 
     if (isDate(aValue) && isDate(bValue)) {
         return castAs(aValue, 'date').getTime() - castAs(bValue, 'date').getTime();
@@ -1175,8 +1189,8 @@ function sortDateValues(flags, a, b) {
  * @returns
  */
 function sortMixedTypeValues(flags, a, b) {
-    let aValue = getFirstValue(a);
-    let bValue = getFirstValue(b);
+    let aValue = getSortKey(a, flags);
+    let bValue = getSortKey(b, flags);
     const isNumberA = isNumber(aValue);
     const isNumberB = isNumber(bValue);
 
@@ -1693,7 +1707,29 @@ function formatDate(flags, date) {
  * @returns {string} The formatted number.
  */
 function formatNumber(flags, value) {
-    return isNaN(value) ? '' : value.toLocaleString(flags.locale, flags.style);
+    if (isNaN(value)) return '';
+    // Skip locale grouping for small integers (abs < 10000) when no
+    // explicit style is requested — prevents 2020 → "2,020".
+    if (!flags.style && Number.isInteger(value) && Math.abs(value) < 10000) {
+        return value.toString();
+    }
+    // Build proper Intl.NumberFormat options when flags.style is a
+    // string like 'currency' or 'percent'. toLocaleString expects an
+    // options object, not a bare string.
+    let options = flags.style;
+    if (typeof options === 'string') {
+        options = { style: options };
+        if (options.style === 'currency') {
+            const code = flags.currency;
+            if (code && typeof code === 'string') {
+                options.currency = code.toUpperCase();
+            } else {
+                // No currency code — fall back to plain number formatting
+                options = undefined;
+            }
+        }
+    }
+    return value.toLocaleString(flags.locale, options);
 }
 
 /**

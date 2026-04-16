@@ -117,18 +117,16 @@ If touching snippet handling, truthiness semantics, the export surface, list dis
 
 ## Known rough edges
 
-See `docs/future-work.md` for the rolling TODO. The big ones worth keeping in mind during any related work:
+See `docs/future-work.md` for the rolling TODO. The remaining rough edges:
 
-- **`>>` sort ignores `-by=field`.** The flag is parsed but not used. `SORTED BY year` in Plain form works only when alphabetical order on the displayed field coincides with the intended ordering. Pre-existing; fix sketch in future-work doc.
-- **Plain's `WHERE` clause has no parenthesized boolean groups.** `WHERE NOT (a OR b)` fails at the parser. Apply de Morgan's law (`WHERE NOT a AND NOT b`) as the workaround.
-- **`AS currency USD` / `AS phone` on bare strings.** The specialized formatters expect creator objects; bare strings pass through unchanged. Docs honestly say "dispatches to the specialized formatter; expects a creator object" rather than claiming polished output. Deciding whether to auto-wrap bare values is open in future-work.
+- **`AS phone` / `AS address` / `AS email` on bare strings.** The specialized formatters (`PhoneNumber`, `Address`, `Email` creator classes) expect structured objects; bare strings pass through unchanged. Currency formatting (`AS currency USD`) works on bare numbers since the April 2026 fix.
 
 ## Tests
 
 - `tests/engine.test.js` — worked examples of each standard-library category via `LoomCore`; the canonical reference for how each function behaves. Uses `run()` / `evaluate()` helpers wired to `LoomCore` directly so the tests exercise Compact form without Plain-translation overhead.
 - `tests/plain/{tokenizer,parser,translator,engine,snippets}.test.js` — the Plain surface layer, split by pipeline stage. `plain/engine.test.js` uses `Loom` (the Plain wrapper) and covers end-to-end templates including `WHERE NOT`, aggregation modifiers, keyword shadowing, and Compact-passthrough fallthrough.
 
-Total: 223 tests across 6 files.
+Total: 314 tests across 9 files.
 
 When adding a standard-library function, add a test case in `tests/engine.test.js` under the appropriate category — it doubles as documentation. When adding Plain-form syntax, add parser tests (shape of AST), translator tests (generated Compact expression), and end-to-end engine tests (full render output against realistic data).
 

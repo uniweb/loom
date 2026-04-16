@@ -103,6 +103,30 @@ function translateShow(node) {
     // condition evaluates per-element via Loom's list-awareness.
     const listRoot = extractListRoot(node.value)
 
+    // Sort-restructuring pre-pass.
+    //
+    // When SORTED BY is present and the SHOW value is a dotted path
+    // (e.g., `pubs.title`), the sort must operate on the full object
+    // array — not on the already-extracted display values (strings)
+    // that the dotted path evaluates to. Without this, `-by=year`
+    // tries to look up `year` on a string and silently falls back to
+    // alphabetical order.
+    //
+    // When detected, we start `expr` as the list root (full objects),
+    // let WHERE and SORTED BY operate on those objects, then extract
+    // the display field at the end via the `.` accessor. Null entries
+    // from WHERE's ternary null-replacement are dropped during
+    // rendering by `formatList`.
+    const hasSortedBy = node.modifiers.some((m) => m.type === 'sortedBy')
+    let displayField = null
+    if (hasSortedBy && node.value.type === 'var' && listRoot) {
+        const path = node.value.path
+        const rootPrefix = listRoot + '.'
+        if (path.startsWith(rootPrefix) && path.length > rootPrefix.length) {
+            displayField = path.slice(rootPrefix.length)
+        }
+    }
+
     // Aggregate-WHERE pre-pass.
     //
     // A WHERE modifier on an aggregate value (count/sum/average) needs a
@@ -141,7 +165,7 @@ function translateShow(node) {
             skipWhereIndex = whereIdx
         }
     }
-    if (expr == null) expr = nested(node.value)
+    if (expr == null) expr = displayField ? listRoot : nested(node.value)
 
     for (let i = 0; i < node.modifiers.length; i++) {
         if (i === skipWhereIndex) continue
@@ -158,6 +182,13 @@ function translateShow(node) {
                 const prop = extractProp(mod.value)
                 const descFlag = mod.order === 'desc' ? '-desc ' : ''
                 expr = `(>> ${descFlag}-by=${prop} ${expr})`
+                // When restructured, extract the display field now so
+                // subsequent modifiers (JOINED BY, AS, etc.) see the
+                // scalar display values, not the full objects.
+                if (displayField) {
+                    expr = `(. ${quote(displayField)} ${expr})`
+                    displayField = null
+                }
                 break
             }
             case 'joinedBy':

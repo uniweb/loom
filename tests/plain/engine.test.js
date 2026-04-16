@@ -203,7 +203,14 @@ describe('plain engine — aggregation', () => {
             '{SUM OF grants.amount WHERE active AS currency USD}',
             { grants },
         )
+        expect(r).toContain('$')
         expect(r).toContain('400')
+    })
+
+    it('bare number AS currency USD produces $ symbol', () => {
+        const r = render('{SHOW price AS currency USD}', { price: 1200 })
+        expect(r).toContain('$')
+        expect(r).toContain('1,200')
     })
 
     it('AVERAGE OF ... WHERE filters the source list before averaging', () => {
@@ -308,6 +315,44 @@ describe('plain engine — WHERE NOT', () => {
         const pubs = [{ year: 2018 }, { year: 2023 }, { year: 2024 }]
         // "Not recent" = not (year > 2020) = 2018 only.
         expect(evaluate('COUNT OF pubs WHERE NOT year > 2020', { pubs })).toBe(1)
+    })
+
+    it('WHERE NOT (a OR b) with parenthesized boolean group', () => {
+        const pubs = [
+            { title: 'A', draft: true, archived: false },
+            { title: 'B', draft: false, archived: true },
+            { title: 'C', draft: false, archived: false },
+            { title: 'D', draft: true, archived: true },
+        ]
+        // Neither draft nor archived → only C.
+        expect(
+            render('{SHOW pubs.title WHERE NOT (draft OR archived)}', { pubs }),
+        ).toBe('C')
+    })
+
+    it('WHERE (a AND b) OR c with parenthesized group', () => {
+        const items = [
+            { t: 'A', x: true, y: true, z: false },
+            { t: 'B', x: true, y: false, z: false },
+            { t: 'C', x: false, y: false, z: true },
+            { t: 'D', x: false, y: false, z: false },
+        ]
+        // (x AND y) OR z → A (both), C (z only)
+        expect(
+            render('{SHOW items.t WHERE (x AND y) OR z}', { items }),
+        ).toBe('A, C')
+    })
+
+    it('COUNT OF ... WHERE NOT (a OR b) counts correctly', () => {
+        const pubs = [
+            { draft: true, archived: false },
+            { draft: false, archived: true },
+            { draft: false, archived: false },
+            { draft: true, archived: true },
+        ]
+        expect(
+            evaluate('COUNT OF pubs WHERE NOT (draft OR archived)', { pubs }),
+        ).toBe(1)
     })
 })
 
@@ -655,5 +700,48 @@ describe('plain engine — keyword shadowing', () => {
             ],
         }
         expect(render('{pubs.title SORTED BY year}', vars)).toBe('A, B, C')
+    })
+
+    it('SORTED BY actually sorts by the named field, not alphabetically', () => {
+        // Data where alphabetical title order DISAGREES with year order.
+        // Without the -by fix, this would sort alphabetically by title
+        // and return "A-Paper, M-Paper, Z-Paper".
+        const vars = {
+            pubs: [
+                { title: 'Z-Paper', year: 2018 },
+                { title: 'A-Paper', year: 2024 },
+                { title: 'M-Paper', year: 2022 },
+            ],
+        }
+        expect(render('{pubs.title SORTED BY year}', vars)).toBe(
+            'Z-Paper, M-Paper, A-Paper'
+        )
+    })
+
+    it('FROM HIGHEST TO LOWEST sorts descending by the named field', () => {
+        const vars = {
+            pubs: [
+                { title: 'Z-Paper', year: 2018 },
+                { title: 'A-Paper', year: 2024 },
+                { title: 'M-Paper', year: 2022 },
+            ],
+        }
+        expect(render('{pubs.title FROM HIGHEST TO LOWEST year}', vars)).toBe(
+            'A-Paper, M-Paper, Z-Paper'
+        )
+    })
+
+    it('WHERE + SORTED BY filters then sorts by the named field', () => {
+        const vars = {
+            pubs: [
+                { title: 'C-Paper', year: 2024, refereed: true },
+                { title: 'A-Paper', year: 2018, refereed: false },
+                { title: 'B-Paper', year: 2022, refereed: true },
+            ],
+        }
+        // Filters to refereed (C and B), then sorts by year ascending.
+        expect(
+            render('{SHOW pubs.title WHERE refereed SORTED BY year}', vars),
+        ).toBe('B-Paper, C-Paper')
     })
 })

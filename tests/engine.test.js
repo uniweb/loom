@@ -60,6 +60,15 @@ describe('math', () => {
         // % computes (a/b * 100) — "what percent is a of b"
         expect(evaluate('% 50 200')).toBe(400)
     })
+
+    it('evaluateText with outer parens returns native type', () => {
+        // Regression: `evaluateText('(+ 1 2)')` used to return "3" (string)
+        // because the outer parens routed through the # formatter.
+        expect(evaluate('(+ 1 2)')).toBe(3)
+        expect(evaluate('(+ 1 2)')).toStrictEqual(evaluate('+ 1 2'))
+        expect(evaluate('(? true 42 0)')).toBe(42)
+        expect(evaluate('(> 5 3)')).toBe(true)
+    })
 })
 
 // ============================================================================
@@ -200,6 +209,47 @@ describe('sorting', () => {
         const result = evaluate('>> -desc 3 2 1')
         expect(result).toEqual([3, 2, 1])
     })
+
+    it('sorts objects by -by=field (ascending)', () => {
+        const data = [
+            { title: 'Z-Paper', year: 2018 },
+            { title: 'A-Paper', year: 2024 },
+            { title: 'M-Paper', year: 2022 },
+        ]
+        const result = evaluate('>> -by=year data', { data })
+        expect(result.map((d) => d.title)).toEqual(['Z-Paper', 'M-Paper', 'A-Paper'])
+    })
+
+    it('sorts objects by -by=field (descending)', () => {
+        const data = [
+            { title: 'Z-Paper', year: 2018 },
+            { title: 'A-Paper', year: 2024 },
+            { title: 'M-Paper', year: 2022 },
+        ]
+        const result = evaluate('>> -desc -by=year data', { data })
+        expect(result.map((d) => d.title)).toEqual(['A-Paper', 'M-Paper', 'Z-Paper'])
+    })
+
+    it('sorts objects by -by=name (string field)', () => {
+        const data = [
+            { name: 'Charlie', id: 3 },
+            { name: 'Alice', id: 1 },
+            { name: 'Bob', id: 2 },
+        ]
+        const result = evaluate('>> -by=name data', { data })
+        expect(result.map((d) => d.name)).toEqual(['Alice', 'Bob', 'Charlie'])
+    })
+
+    it('falls back to getFirstValue when -by field is absent', () => {
+        const data = [
+            { title: 'Banana' },
+            { title: 'Apple' },
+            { title: 'Cherry' },
+        ]
+        // No -by flag, sorts by first property value (title, alphabetically)
+        const result = evaluate('>> data', { data })
+        expect(result.map((d) => d.title)).toEqual(['Apple', 'Banana', 'Cherry'])
+    })
 })
 
 // ============================================================================
@@ -227,6 +277,42 @@ describe('formatting', () => {
     it('format with italic', () => {
         const result = run('{# -italic "hello"}')
         expect(result).toBe('<em>hello</em>')
+    })
+
+    it('4-digit integers render without locale grouping', () => {
+        expect(run('{year}', { year: 2020 })).toBe('2020')
+        expect(run('{n}', { n: 999 })).toBe('999')
+        expect(run('{n}', { n: -2020 })).toBe('-2020')
+        expect(run('{n}', { n: 0 })).toBe('0')
+    })
+
+    it('5-digit+ integers still get locale grouping', () => {
+        expect(run('{n}', { n: 10000 })).toBe('10,000')
+        expect(run('{n}', { n: 100000 })).toBe('100,000')
+    })
+
+    it('non-integer numbers still get locale formatting', () => {
+        // Floats are not affected by the integer guard
+        expect(run('{n}', { n: 2020.5 })).toContain('2,020')
+    })
+
+    it('currency format on bare number produces $ symbol and decimals', () => {
+        const result = run('{# -currency=USD price}', { price: 1200 })
+        expect(result).toContain('$')
+        expect(result).toContain('1,200')
+        expect(result).toContain('.00')
+    })
+
+    it('currency format with EUR code', () => {
+        const result = run('{# -currency=EUR price}', { price: 500 })
+        // EUR symbol varies by locale but the amount should be present
+        expect(result).toContain('500')
+    })
+
+    it('percent format on bare number', () => {
+        const result = run('{# -percent price}', { price: 0.75 })
+        expect(result).toContain('75')
+        expect(result).toContain('%')
     })
 })
 

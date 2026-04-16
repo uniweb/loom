@@ -83,6 +83,37 @@ describe('plain parser — show', () => {
         expect(ast.modifiers[0].type).toBe('where')
     })
 
+    it('parses WHERE NOT (a OR b) with parenthesized boolean group', () => {
+        const ast = P('SHOW x WHERE NOT (draft OR archived)')
+        expect(ast.modifiers[0].type).toBe('where')
+        const cond = ast.modifiers[0].condition
+        expect(cond.type).toBe('unop')
+        expect(cond.op).toBe('!')
+        expect(cond.arg.type).toBe('group')
+        expect(cond.arg.inner.type).toBe('binop')
+        expect(cond.arg.inner.op).toBe('|')
+    })
+
+    it('parses WHERE (a AND b) OR c with parenthesized boolean group', () => {
+        const ast = P('SHOW x WHERE (a AND b) OR c')
+        const cond = ast.modifiers[0].condition
+        expect(cond.type).toBe('binop')
+        expect(cond.op).toBe('|')
+        expect(cond.left.type).toBe('group')
+        expect(cond.left.inner.op).toBe('&')
+        expect(cond.right.path).toBe('c')
+    })
+
+    it('parses WHERE NOT (NOT active) — double negation with parens', () => {
+        const ast = P('SHOW x WHERE NOT (NOT active)')
+        const cond = ast.modifiers[0].condition
+        expect(cond.type).toBe('unop')
+        expect(cond.op).toBe('!')
+        expect(cond.arg.type).toBe('group')
+        expect(cond.arg.inner.type).toBe('unop')
+        expect(cond.arg.inner.arg.path).toBe('active')
+    })
+
     it('accepts modifiers in any order', () => {
         const ast = P(
             'SHOW publications.title WHERE refereed SORTED BY date DESCENDING JOINED BY ", "'

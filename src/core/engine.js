@@ -112,6 +112,22 @@ export default class LoomCore {
             return this.getVariable(text, auxVariables);
         }
 
+        // Strip a single top-level (…) wrapper so `evaluateText('(+ 1 2)')`
+        // returns the native type (number 3) instead of routing through
+        // the # formatter which stringifies it.
+        if (text.length > 2 && text[0] === '(' && text[text.length - 1] === ')') {
+            let depth = 1;
+            let balanced = true;
+            for (let i = 1; i < text.length - 1; i++) {
+                if (text[i] === '(') depth++;
+                else if (text[i] === ')') depth--;
+                if (depth === 0) { balanced = false; break; }
+            }
+            if (balanced) {
+                return this.evaluateFunction(text.slice(1, -1), auxVariables);
+            }
+        }
+
         return this.evaluateFunction(text, auxVariables);
     }
 
