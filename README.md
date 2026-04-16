@@ -466,8 +466,9 @@ export default {
 | `vars` | `(data) => object` | *required* | Extracts the Loom variable namespace from assembled data |
 | `engine` | `Loom` instance | `new Loom()` | Custom Loom instance (with snippets or custom functions) |
 | `sourceParam` | `string \| null` | `'source'` | Frontmatter field for the data array to iterate. `null` disables. |
+| `whereParam` | `string \| null` | `'where'` | Frontmatter field for a Loom filter expression. `null` disables. |
 
-**How it works:** The returned `content` handler reads `block.properties[sourceParam]`. Without it, the handler calls `instantiateContent` (simple substitution). With it, the handler calls `instantiateRepeated` (split-iterate-reassemble). The `vars` function extracts the Loom variable namespace from the block's assembled data.
+**How it works:** The returned `content` handler reads `block.properties[sourceParam]`. Without it, the handler calls `instantiateContent` (simple substitution). With it, the handler calls `instantiateRepeated` (split-iterate-reassemble). When `whereParam` is also set, the source array is filtered first — only items where the expression evaluates to truthy are iterated. The `vars` function extracts the Loom variable namespace from the block's assembled data.
 
 **The `source` convention:** Sections declare `source: fieldName` in frontmatter to indicate which data array to iterate. A `---` divider in the markdown separates the header (rendered once) from the body (repeated per item). A second `---` starts a footer (rendered once after all items):
 
@@ -484,6 +485,21 @@ source: education
 ---
 Total: {COUNT OF education} entries.
 ```
+
+**The `where` convention:** Add `where` to filter the source array before iteration. The expression is evaluated per item — only truthy matches are included:
+
+```markdown
+---
+type: CvEntry
+source: publications
+where: "type = 'book'"
+---
+# Books ({COUNT OF publications})
+---
+**{title}** ({year})
+```
+
+`where` uses Plain-form Loom expressions: `type = 'book'` (equality), `year > '1870'` (comparison), `refereed` (truthy check), `type = 'book' AND refereed` (boolean combination). Aggregate expressions in the header reflect the filtered set.
 
 ## API
 

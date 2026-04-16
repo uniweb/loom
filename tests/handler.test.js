@@ -260,7 +260,7 @@ describe('createLoomHandlers', () => {
     it('ignores where when no source is set', () => {
       const block = makeBlock(
         [para('{title}')],
-        { where: "= type 'book'" } // no source — where is ignored
+        { where: "type = 'book'" } // no source — where is ignored
       )
       const data = { profile: [{ title: 'Hello' }] }
       const result = handlers.content(data, block)
