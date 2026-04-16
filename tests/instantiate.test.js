@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { instantiateContent, Loom } from '../src/index.js'
+import { instantiateContent, instantiateRepeated, Loom } from '../src/index.js'
 
 // Mock a minimal engine with just render() — covers the duck-typed contract.
 const mockEngine = {
@@ -148,5 +148,163 @@ describe('instantiateContent', () => {
         expect(result.content[1].content[0].text).toBe(
             'You have 2 refereed publications.',
         )
+    })
+})
+
+// ============================================================================
+// instantiateRepeated
+// ============================================================================
+
+describe('instantiateRepeated', () => {
+    const text = (str) => ({ type: 'text', text: str })
+    const para = (str) => ({ type: 'paragraph', content: [text(str)] })
+    const heading = (str) => ({ type: 'heading', attrs: { level: 2 }, content: [text(str)] })
+    const divider = { type: 'divider' }
+    const doc = (...nodes) => ({ type: 'doc', content: nodes })
+
+    const loom = new Loom()
+
+    it('falls back to simple instantiation when no dividers', () => {
+        const input = doc(heading('{name}'), para('Hello'))
+        const result = instantiateRepeated(input, loom, { name: 'Ada' }, 'items')
+        expect(result.content[0].content[0].text).toBe('Ada')
+        expect(result.content[1].content[0].text).toBe('Hello')
+    })
+
+    it('falls back when field is not an array', () => {
+        const input = doc(heading('{name}'), divider, para('{title}'))
+        const result = instantiateRepeated(input, loom, { name: 'Ada', title: 'Dr' }, 'name')
+        // name is a string, not an array — falls back to simple
+        expect(result.content[0].content[0].text).toBe('Ada')
+    })
+
+    it('falls back when field is an empty array', () => {
+        const input = doc(heading('{name}'), divider, para('{title}'))
+        const result = instantiateRepeated(input, loom, { name: 'Ada', items: [] }, 'items')
+        expect(result.content[0].content[0].text).toBe('Ada')
+    })
+
+    it('splits two parts: header + body repeated per item', () => {
+        const input = doc(
+            heading('{name}'),
+            divider,
+            para('{degree} at {school}')
+        )
+        const vars = {
+            name: 'Ada',
+            education: [
+                { degree: 'BA', school: 'Cambridge' },
+                { degree: 'MA', school: 'Oxford' },
+            ],
+        }
+        const result = instantiateRepeated(input, loom, vars, 'education')
+        expect(result.content).toHaveLength(3) // header + 2 body entries
+        expect(result.content[0].content[0].text).toBe('Ada')
+        expect(result.content[1].content[0].text).toBe('BA at Cambridge')
+        expect(result.content[2].content[0].text).toBe('MA at Oxford')
+    })
+
+    it('splits three parts: header + body + footer', () => {
+        const input = doc(
+            heading('{name}'),
+            divider,
+            para('{title}'),
+            divider,
+            para('Total: {COUNT OF items}')
+        )
+        const vars = {
+            name: 'Ada',
+            items: [
+                { title: 'Paper A' },
+                { title: 'Paper B' },
+                { title: 'Paper C' },
+            ],
+        }
+        const result = instantiateRepeated(input, loom, vars, 'items')
+        // header(1) + body(3) + divider(1) + footer(1) = 6
+        expect(result.content).toHaveLength(6)
+        expect(result.content[0].content[0].text).toBe('Ada')
+        expect(result.content[1].content[0].text).toBe('Paper A')
+        expect(result.content[2].content[0].text).toBe('Paper B')
+        expect(result.content[3].content[0].text).toBe('Paper C')
+        expect(result.content[4].type).toBe('divider')
+        expect(result.content[5].content[0].text).toBe('Total: 3')
+    })
+
+    it('merges item fields into vars (item overrides top-level)', () => {
+        const input = doc(
+            heading('{name}'),
+            divider,
+            para('{name} — {role}')
+        )
+        const vars = {
+            name: 'Top Level',
+            team: [
+                { name: 'Alice', role: 'Engineer' },
+                { name: 'Bob', role: 'Designer' },
+            ],
+        }
+        const result = instantiateRepeated(input, loom, vars, 'team')
+        // header uses top-level name
+        expect(result.content[0].content[0].text).toBe('Top Level')
+        // body items override name with their own
+        expect(result.content[1].content[0].text).toBe('Alice — Engineer')
+        expect(result.content[2].content[0].text).toBe('Bob — Designer')
+    })
+
+    it('resolves dot-path field names', () => {
+        const input = doc(
+            heading('Awards'),
+            divider,
+            para('{title} ({year})')
+        )
+        const vars = {
+            academic: {
+                awards: [
+                    { title: 'Medal', year: '2020' },
+                    { title: 'Prize', year: '2021' },
+                ],
+            },
+        }
+        const result = instantiateRepeated(input, loom, vars, 'academic.awards')
+        expect(result.content).toHaveLength(3)
+        expect(result.content[1].content[0].text).toBe('Medal (2020)')
+        expect(result.content[2].content[0].text).toBe('Prize (2021)')
+    })
+
+    it('auto-unwraps content-API envelope', () => {
+        const inner = doc(heading('{name}'), divider, para('{title}'))
+        const wrapped = { doc: inner }
+        const vars = {
+            name: 'Ada',
+            items: [{ title: 'Paper' }],
+        }
+        const result = instantiateRepeated(wrapped, loom, vars, 'items')
+        expect(result.content[0].content[0].text).toBe('Ada')
+        expect(result.content[1].content[0].text).toBe('Paper')
+    })
+
+    it('returns simple instantiation for null content', () => {
+        const result = instantiateRepeated(null, loom, { x: 1 }, 'items')
+        expect(result).toBe(null)
+    })
+
+    it('uses Loom aggregation in the footer', () => {
+        const input = doc(
+            heading('Funding'),
+            divider,
+            para('{title} — £{amount}'),
+            divider,
+            para('Total: £{TOTAL OF grants.amount}')
+        )
+        const vars = {
+            grants: [
+                { title: 'Grant A', amount: 500 },
+                { title: 'Grant B', amount: 300 },
+            ],
+        }
+        const result = instantiateRepeated(input, loom, vars, 'grants')
+        const footer = result.content[result.content.length - 1]
+        expect(footer.content[0].text).toBe('Total: £800')
     })
 })
