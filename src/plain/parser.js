@@ -201,6 +201,34 @@ function parseExpression(p) {
         return call
     }
 
+    // Top-level condition expression — handles comparisons, boolean
+    // operators, and arithmetic that would otherwise be rejected as
+    // trailing tokens after the implicit SHOW value. Examples:
+    //
+    //   type = 'book'              → (= type 'book')
+    //   year > 2020 AND refereed   → (& (> year 2020) refereed)
+    //   NOT (draft OR archived)    → (! (| draft archived))
+    //
+    // These expressions are currently errors (Plain rejects, LoomCore
+    // throws Error 103). Since Loom has no assignment operator, `=` is
+    // unambiguous as equality, and all other operators already have
+    // fixed semantics.
+    //
+    // The try-and-check pattern: if the condition grammar consumes all
+    // tokens, return the result. Otherwise restore and fall through to
+    // implicit SHOW, which handles modifier keywords (AS, SORTED BY,
+    // JOINED BY, etc.) that the condition grammar doesn't recognize.
+    {
+        const savedI = p.i
+        try {
+            const cond = parseCondition(p)
+            if (cond != null && p.i >= p.tokens.length) {
+                return cond
+            }
+        } catch {}
+        p.i = savedI
+    }
+
     // Implicit SHOW — bare value with optional modifiers.
     return parseShowBody(p)
 }

@@ -203,7 +203,7 @@ describe('createLoomHandlers', () => {
     it('filters source array with equality expression', () => {
       const block = makeBlock(
         [heading('Books'), divider, para('{title}')],
-        { source: 'publications', where: "= type 'book'" }
+        { source: 'publications', where: "type = 'book'" }
       )
       const result = handlers.content({ profile: [profile] }, block)
       // header + 2 books (not 4 total)
@@ -215,7 +215,7 @@ describe('createLoomHandlers', () => {
     it('filters with comparison expression', () => {
       const block = makeBlock(
         [heading('Late works'), divider, para('{title} ({year})')],
-        { source: 'publications', where: "> year '1860'" }
+        { source: 'publications', where: "year > '1860'" }
       )
       const result = handlers.content({ profile: [profile] }, block)
       // header + 1 item (Climbing Plants 1875)
@@ -250,7 +250,7 @@ describe('createLoomHandlers', () => {
           divider,
           para('{title}'),
         ],
-        { source: 'publications', where: "= type 'book'" }
+        { source: 'publications', where: "type = 'book'" }
       )
       const result = handlers.content({ profile: [profile] }, block)
       // The header should show count of the FILTERED publications (2 books)
@@ -274,7 +274,7 @@ describe('createLoomHandlers', () => {
       })
       const block = makeBlock(
         [heading('All'), divider, para('{title}')],
-        { source: 'publications', where: "= type 'book'" }
+        { source: 'publications', where: "type = 'book'" }
       )
       const result = h.content({ profile: [profile] }, block)
       // All 4 items, where is ignored

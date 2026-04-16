@@ -601,6 +601,71 @@ describe('plain engine — fallback on parse failure', () => {
 })
 
 // -----------------------------------------------------------------------------
+// Top-level conditions — evaluateText with comparisons and boolean ops
+// -----------------------------------------------------------------------------
+//
+// Plain form now accepts condition expressions at the top level, not only
+// inside WHERE and IF. This enables the `where` frontmatter convention in
+// createLoomHandlers, where content authors write natural expressions like
+// `type = 'book'` instead of requiring Compact form `= type 'book'`.
+
+describe('plain engine — top-level conditions', () => {
+    it('equality: evaluateText returns boolean', () => {
+        expect(evaluate("type = 'book'", { type: 'book' })).toBe(true)
+        expect(evaluate("type = 'book'", { type: 'article' })).toBe(false)
+    })
+
+    it('comparison operators', () => {
+        expect(evaluate('year > 2020', { year: 2024 })).toBe(true)
+        expect(evaluate('year > 2020', { year: 2018 })).toBe(false)
+        expect(evaluate('year >= 2020', { year: 2020 })).toBe(true)
+        expect(evaluate('year < 100', { year: 50 })).toBe(true)
+        expect(evaluate("year != 2020", { year: 2021 })).toBe(true)
+    })
+
+    it('AND / OR boolean combination', () => {
+        expect(evaluate("type = 'book' AND refereed", { type: 'book', refereed: true })).toBe(true)
+        expect(evaluate("type = 'book' AND refereed", { type: 'book', refereed: false })).toBe(false)
+        expect(evaluate("type = 'book' OR type = 'chapter'", { type: 'chapter' })).toBe(true)
+    })
+
+    it('NOT at top level', () => {
+        expect(evaluate('NOT draft', { draft: false })).toBe(true)
+        expect(evaluate('NOT draft', { draft: true })).toBe(false)
+    })
+
+    it('NOT (a OR b) parenthesized group at top level', () => {
+        expect(evaluate('NOT (draft OR archived)', { draft: false, archived: false })).toBe(true)
+        expect(evaluate('NOT (draft OR archived)', { draft: true, archived: false })).toBe(false)
+    })
+
+    it('bare variable still returns its value (no regression)', () => {
+        expect(evaluate('name', { name: 'Ada' })).toBe('Ada')
+    })
+
+    it('arithmetic at top level works', () => {
+        expect(evaluate('a + b', { a: 2, b: 3 })).toBe(5)
+    })
+
+    it('condition in a template placeholder renders as string', () => {
+        // Booleans format as '1' / '0' through the # formatter
+        expect(render("{type = 'book'}", { type: 'book' })).toBe('1')
+        expect(render("{type = 'book'}", { type: 'article' })).toBe('0')
+    })
+
+    it('SHOW with modifiers still works (no regression)', () => {
+        expect(render('{name AS long date}', { name: '2020/01/15' })).toBe('January 15, 2020')
+    })
+
+    it('function calls still work (no regression)', () => {
+        const loom = new Loom({}, {
+            greet: (flags, val) => `Hi, ${val}!`,
+        })
+        expect(loom.render('{greet "Diego"}', () => undefined)).toBe('Hi, Diego!')
+    })
+})
+
+// -----------------------------------------------------------------------------
 // Keyword shadowing — regression coverage for position-aware matching
 // -----------------------------------------------------------------------------
 //

@@ -26,8 +26,9 @@ import Loom from './engine.js'
  *   field containing a Loom filter expression. When set, the source
  *   array is filtered before iteration — only items where the
  *   expression evaluates to truthy are included. Expressions use
- *   Compact form: `= type 'book'`, `> year '1870'`, or a bare
- *   truthy check like `refereed`. Set to `null` to disable.
+ *   Plain form: `type = 'book'`, `year > '1870'`,
+ *   `type = 'book' AND refereed`, or a bare truthy check like
+ *   `refereed`. Set to `null` to disable.
  * @returns {{ content: Function }} Handlers object for foundation.js
  *
  * @example
@@ -45,7 +46,7 @@ import Loom from './engine.js'
  * // ---
  * // type: PublicationList
  * // source: publications
- * // where: "= type 'book'"
+ * // where: "type = 'book'"
  * // ---
  */
 export function createLoomHandlers(options = {}) {

@@ -5,13 +5,12 @@ import { parse } from '../../src/plain/parser.js'
 const P = (src) => parse(tokenize(src))
 
 describe('plain parser — show', () => {
-    it('parses bare value as implicit show', () => {
+    it('parses bare value as a var node (condition grammar consumes it)', () => {
+        // A bare variable with no modifiers is consumed by the top-level
+        // condition attempt, producing a raw var node. The translator
+        // emits the same output as a show-wrapped var.
         const ast = P('publication.title')
-        expect(ast).toEqual({
-            type: 'show',
-            value: { type: 'var', path: 'publication.title' },
-            modifiers: [],
-        })
+        expect(ast).toEqual({ type: 'var', path: 'publication.title' })
     })
 
     it('parses explicit SHOW', () => {
@@ -295,9 +294,67 @@ describe('plain parser — aggregation', () => {
 
 describe('plain parser — loom passthrough', () => {
     it('preserves raw loom expressions', () => {
+        // A bare loom passthrough with no modifiers is consumed by the
+        // top-level condition attempt, producing a raw loom node.
         const ast = P('{+ 1 2}')
+        expect(ast.type).toBe('loom')
+        expect(ast.value).toBe('{+ 1 2}')
+    })
+})
+
+describe('plain parser — top-level conditions', () => {
+    it('parses equality at top level', () => {
+        const ast = P("type = 'book'")
+        expect(ast.type).toBe('binop')
+        expect(ast.op).toBe('=')
+        expect(ast.left).toEqual({ type: 'var', path: 'type' })
+        expect(ast.right).toEqual({ type: 'string', value: 'book' })
+    })
+
+    it('parses comparison at top level', () => {
+        const ast = P('year > 2020')
+        expect(ast.type).toBe('binop')
+        expect(ast.op).toBe('>')
+        expect(ast.left.path).toBe('year')
+        expect(ast.right.value).toBe(2020)
+    })
+
+    it('parses AND / OR at top level', () => {
+        const ast = P("type = 'book' AND refereed")
+        expect(ast.type).toBe('binop')
+        expect(ast.op).toBe('&')
+        expect(ast.left.type).toBe('binop')
+        expect(ast.left.op).toBe('=')
+        expect(ast.right.path).toBe('refereed')
+    })
+
+    it('parses NOT at top level', () => {
+        const ast = P('NOT draft')
+        expect(ast.type).toBe('unop')
+        expect(ast.op).toBe('!')
+        expect(ast.arg.path).toBe('draft')
+    })
+
+    it('parses NOT (a OR b) at top level', () => {
+        const ast = P('NOT (draft OR archived)')
+        expect(ast.type).toBe('unop')
+        expect(ast.op).toBe('!')
+        expect(ast.arg.type).toBe('group')
+        expect(ast.arg.inner.op).toBe('|')
+    })
+
+    it('falls back to SHOW when modifiers follow a bare value', () => {
+        // Condition attempt parses `name`, remaining `AS date` are not
+        // consumed → restore → implicit SHOW with modifier.
+        const ast = P('name AS date')
         expect(ast.type).toBe('show')
-        expect(ast.value).toEqual({ type: 'loom', value: '{+ 1 2}' })
+        expect(ast.modifiers[0].type).toBe('as')
+    })
+
+    it('arithmetic at top level', () => {
+        const ast = P('a + b')
+        expect(ast.type).toBe('binop')
+        expect(ast.op).toBe('+')
     })
 })
 
@@ -320,8 +377,8 @@ describe('plain parser — function calls', () => {
     it('parses bare identifier as a variable, not a call', () => {
         // No trailing value → not a call, just a bare value.
         const ast = P('greet')
-        expect(ast.type).toBe('show')
-        expect(ast.value).toEqual({ type: 'var', path: 'greet' })
+        expect(ast.type).toBe('var')
+        expect(ast.path).toBe('greet')
     })
 
     it('parses identifier + WITH LABEL as implicit SHOW, not a call', () => {
