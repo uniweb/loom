@@ -186,6 +186,102 @@ describe('createLoomHandlers', () => {
     })
   })
 
+  describe('where filtering', () => {
+    const handlers = createLoomHandlers({
+      vars: (data) => data?.profile?.[0],
+    })
+
+    const profile = {
+      publications: [
+        { title: 'Origin of Species', type: 'book', year: '1859' },
+        { title: 'Coral Reefs', type: 'book', year: '1842' },
+        { title: 'Tendency of Species', type: 'article-journal', year: '1858' },
+        { title: 'Climbing Plants', type: 'article-journal', year: '1875' },
+      ],
+    }
+
+    it('filters source array with equality expression', () => {
+      const block = makeBlock(
+        [heading('Books'), divider, para('{title}')],
+        { source: 'publications', where: "= type 'book'" }
+      )
+      const result = handlers.content({ profile: [profile] }, block)
+      // header + 2 books (not 4 total)
+      expect(result.content).toHaveLength(3)
+      expect(result.content[1].content[0].text).toBe('Origin of Species')
+      expect(result.content[2].content[0].text).toBe('Coral Reefs')
+    })
+
+    it('filters with comparison expression', () => {
+      const block = makeBlock(
+        [heading('Late works'), divider, para('{title} ({year})')],
+        { source: 'publications', where: "> year '1860'" }
+      )
+      const result = handlers.content({ profile: [profile] }, block)
+      // header + 1 item (Climbing Plants 1875)
+      expect(result.content).toHaveLength(2)
+      expect(result.content[1].content[0].text).toBe('Climbing Plants (1875)')
+    })
+
+    it('filters with truthy check', () => {
+      const data = {
+        profile: [{
+          pubs: [
+            { title: 'A', refereed: true },
+            { title: 'B', refereed: false },
+            { title: 'C', refereed: true },
+          ],
+        }],
+      }
+      const block = makeBlock(
+        [heading('Refereed'), divider, para('{title}')],
+        { source: 'pubs', where: 'refereed' }
+      )
+      const result = handlers.content(data, block)
+      expect(result.content).toHaveLength(3) // header + 2 refereed
+      expect(result.content[1].content[0].text).toBe('A')
+      expect(result.content[2].content[0].text).toBe('C')
+    })
+
+    it('aggregate expressions in header reflect filtered count', () => {
+      const block = makeBlock(
+        [
+          heading('Books ({COUNT OF publications})'),
+          divider,
+          para('{title}'),
+        ],
+        { source: 'publications', where: "= type 'book'" }
+      )
+      const result = handlers.content({ profile: [profile] }, block)
+      // The header should show count of the FILTERED publications (2 books)
+      expect(result.content[0].content[0].text).toBe('Books (2)')
+    })
+
+    it('ignores where when no source is set', () => {
+      const block = makeBlock(
+        [para('{title}')],
+        { where: "= type 'book'" } // no source — where is ignored
+      )
+      const data = { profile: [{ title: 'Hello' }] }
+      const result = handlers.content(data, block)
+      expect(result.content[0].content[0].text).toBe('Hello')
+    })
+
+    it('disables where when whereParam is null', () => {
+      const h = createLoomHandlers({
+        vars: (data) => data?.profile?.[0],
+        whereParam: null,
+      })
+      const block = makeBlock(
+        [heading('All'), divider, para('{title}')],
+        { source: 'publications', where: "= type 'book'" }
+      )
+      const result = h.content({ profile: [profile] }, block)
+      // All 4 items, where is ignored
+      expect(result.content).toHaveLength(5) // header + 4
+    })
+  })
+
   describe('cv-loom equivalence', () => {
     it('produces the same result as the manual cv-loom handler', () => {
       // This test verifies that createLoomHandlers can replace
