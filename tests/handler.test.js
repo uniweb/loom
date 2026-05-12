@@ -282,6 +282,177 @@ describe('createLoomHandlers', () => {
     })
   })
 
+  describe('sort_by + order', () => {
+    const handlers = createLoomHandlers({
+      vars: (data) => data?.profile?.[0],
+    })
+
+    const profile = {
+      publications: [
+        { title: 'Origin of Species', year: 1859 },
+        { title: 'Coral Reefs', year: 1842 },
+        { title: 'Tendency of Species', year: 1858 },
+        { title: 'Climbing Plants', year: 1875 },
+      ],
+      // Calendar-shaped strings (YYYY/M) — chronological compare must
+      // beat plain string compare so '2012/9' precedes '2012/12'.
+      events: [
+        { name: 'Aug', when: '2012/8' },
+        { name: 'Dec', when: '2012/12' },
+        { name: 'Sep', when: '2012/9' },
+      ],
+    }
+
+    it('sorts ascending by default when sort_by is set', () => {
+      const block = makeBlock(
+        [heading('Pubs'), divider, para('{title} ({year})')],
+        { source: 'publications', sort_by: 'year' }
+      )
+      const result = handlers.content({ profile: [profile] }, block)
+      // header + 4 items in ascending year
+      expect(result.content).toHaveLength(5)
+      expect(result.content[1].content[0].text).toBe('Coral Reefs (1842)')
+      expect(result.content[2].content[0].text).toBe('Tendency of Species (1858)')
+      expect(result.content[3].content[0].text).toBe('Origin of Species (1859)')
+      expect(result.content[4].content[0].text).toBe('Climbing Plants (1875)')
+    })
+
+    it('sorts descending when order: desc', () => {
+      const block = makeBlock(
+        [heading('Pubs'), divider, para('{title} ({year})')],
+        { source: 'publications', sort_by: 'year', order: 'desc' }
+      )
+      const result = handlers.content({ profile: [profile] }, block)
+      expect(result.content[1].content[0].text).toBe('Climbing Plants (1875)')
+      expect(result.content[2].content[0].text).toBe('Origin of Species (1859)')
+      expect(result.content[3].content[0].text).toBe('Tendency of Species (1858)')
+      expect(result.content[4].content[0].text).toBe('Coral Reefs (1842)')
+    })
+
+    it('treats date-shaped strings chronologically (2012/9 before 2012/12)', () => {
+      const block = makeBlock(
+        [heading('Events'), divider, para('{name}')],
+        { source: 'events', sort_by: 'when' }
+      )
+      const result = handlers.content({ profile: [profile] }, block)
+      // Ascending by date: Aug, Sep, Dec
+      expect(result.content[1].content[0].text).toBe('Aug')
+      expect(result.content[2].content[0].text).toBe('Sep')
+      expect(result.content[3].content[0].text).toBe('Dec')
+    })
+
+    it('order is case-insensitive', () => {
+      const block = makeBlock(
+        [heading('Pubs'), divider, para('{year}')],
+        { source: 'publications', sort_by: 'year', order: 'DESC' }
+      )
+      const result = handlers.content({ profile: [profile] }, block)
+      expect(result.content[1].content[0].text).toBe('1875')
+    })
+
+    it('composes with where: filter first, then sort the filtered set', () => {
+      const data = {
+        profile: [{
+          pubs: [
+            { title: 'Old book', type: 'book', year: 1842 },
+            { title: 'New book', type: 'book', year: 1859 },
+            { title: 'Article', type: 'article-journal', year: 1900 },
+          ],
+        }],
+      }
+      const block = makeBlock(
+        [heading('Books'), divider, para('{title}')],
+        {
+          source: 'pubs',
+          where: "type = 'book'",
+          sort_by: 'year',
+          order: 'desc',
+        }
+      )
+      const result = handlers.content(data, block)
+      // header + 2 books (article filtered out), DESC by year
+      expect(result.content).toHaveLength(3)
+      expect(result.content[1].content[0].text).toBe('New book')
+      expect(result.content[2].content[0].text).toBe('Old book')
+    })
+
+    it('records with missing field sort after records with one', () => {
+      const data = {
+        profile: [{
+          items: [
+            { name: 'B', when: '2010' },
+            { name: 'A', when: '2008' },
+            { name: 'C' }, // no when
+          ],
+        }],
+      }
+      const block = makeBlock(
+        [heading('All'), divider, para('{name}')],
+        { source: 'items', sort_by: 'when' }
+      )
+      const result = handlers.content(data, block)
+      // ascending: A (2008), B (2010), then C (missing) at the end
+      expect(result.content[1].content[0].text).toBe('A')
+      expect(result.content[2].content[0].text).toBe('B')
+      expect(result.content[3].content[0].text).toBe('C')
+    })
+
+    it('preserves source order when sort_by is absent', () => {
+      const block = makeBlock(
+        [heading('Pubs'), divider, para('{title}')],
+        { source: 'publications' }
+      )
+      const result = handlers.content({ profile: [profile] }, block)
+      // unchanged from source
+      expect(result.content[1].content[0].text).toBe('Origin of Species')
+      expect(result.content[2].content[0].text).toBe('Coral Reefs')
+      expect(result.content[3].content[0].text).toBe('Tendency of Species')
+      expect(result.content[4].content[0].text).toBe('Climbing Plants')
+    })
+
+    it('disables sort when sortByParam is null', () => {
+      const h = createLoomHandlers({
+        vars: (data) => data?.profile?.[0],
+        sortByParam: null,
+      })
+      const block = makeBlock(
+        [heading('Pubs'), divider, para('{title}')],
+        { source: 'publications', sort_by: 'year' } // ignored
+      )
+      const result = h.content({ profile: [profile] }, block)
+      // back to source order
+      expect(result.content[1].content[0].text).toBe('Origin of Species')
+    })
+
+    it('ignores order when orderParam is null (always asc)', () => {
+      const h = createLoomHandlers({
+        vars: (data) => data?.profile?.[0],
+        orderParam: null,
+      })
+      const block = makeBlock(
+        [heading('Pubs'), divider, para('{year}')],
+        { source: 'publications', sort_by: 'year', order: 'desc' }
+      )
+      const result = h.content({ profile: [profile] }, block)
+      // asc despite order: desc in frontmatter
+      expect(result.content[1].content[0].text).toBe('1842')
+    })
+
+    it('accepts custom sortByParam / orderParam names', () => {
+      const h = createLoomHandlers({
+        vars: (data) => data?.profile?.[0],
+        sortByParam: 'orderBy',
+        orderParam: 'direction',
+      })
+      const block = makeBlock(
+        [heading('Pubs'), divider, para('{year}')],
+        { source: 'publications', orderBy: 'year', direction: 'desc' }
+      )
+      const result = h.content({ profile: [profile] }, block)
+      expect(result.content[1].content[0].text).toBe('1875')
+    })
+  })
+
   describe('cv-loom equivalence', () => {
     it('produces the same result as the manual cv-loom handler', () => {
       // This test verifies that createLoomHandlers can replace
