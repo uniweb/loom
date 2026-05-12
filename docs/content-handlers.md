@@ -1,6 +1,6 @@
 # Content Handlers
 
-A content handler is a transform layer declared in a Uniweb foundation's `foundation.js` that runs between data assembly and the component. The framework calls it once per block, passing the assembled data and the block object. The handler can return transformed ProseMirror content — resolving Loom `{placeholders}` against live data, repeating sections per data item, filtering collections — before the framework parses the result and hands it to the component.
+A content handler is a transform layer declared in a Uniweb foundation's `foundation.js` that runs between data assembly and the component. The framework calls it once per block, passing the assembled data and the block object. The handler can return transformed ProseMirror content — resolving Loom `{placeholders}` against live data, repeating sections per data item, filtering and ordering collections — before the framework parses the result and hands it to the component.
 
 ## The quick way: createLoomHandlers
 
@@ -18,11 +18,12 @@ export default {
 
 The `vars` function extracts the Loom variable namespace from the block's assembled data. It receives the full `data` object and returns the plain object that Loom expressions resolve against.
 
-The returned handler reads the `source` and `where` frontmatter params to decide what to do:
+The returned handler reads the `source`, `where`, `sort_by`, and `order` frontmatter params to decide what to do:
 
 - **No `source`**: simple substitution — every `{placeholder}` in the markdown is resolved against the vars object.
 - **With `source`**: the markdown is split at `---` dividers and the body is repeated per item in the named data array.
 - **With `where`**: the source array is filtered before iteration.
+- **With `sort_by`** (and optional `order`): the (filtered) array is ordered by the named field before iteration.
 
 ## The source convention
 
@@ -90,6 +91,39 @@ where: "type = 'book'"
 
 Aggregate expressions in the header (like `{COUNT OF publications}`) reflect the **filtered** set, because the handler replaces the source array with the filtered result before instantiation.
 
+## The sort convention
+
+Add `sort_by` to frontmatter to order the iterated records by a field, and optional `order` (`asc` — the default — or `desc`, case-insensitive) to pick the direction:
+
+```markdown
+---
+type: PublicationList
+source: publications
+where: "type = 'book'"
+sort_by: year
+order: desc
+---
+# Books, most recent first
+---
+**{title}** ({year})
+```
+
+Sorting runs **after** the `where` filter, so a section can filter and order in one declaration. It works on the section-level iteration path (`source:` + `---` dividers); for ad-hoc inline lists, the Plain-form `SORTED BY` modifier covers the same ground.
+
+How values compare:
+
+| The field holds… | Ordering |
+|---|---|
+| Numbers (`1995`, `42`) | Numeric. |
+| Date-shaped strings (`2012`, `2012/9`, `2012-09-30`) | Chronological — `2012/9` precedes `2012/12` (a plain string sort would not). Trailing text is ignored, so `2012-09 (est.)` still sorts as September 2012. |
+| A mix of bare-year numbers and `YYYY-MM` strings | Interleaved chronologically — `2010` (number) and `'2011-06'` (string) sort in date order. |
+| Any other string | `localeCompare` (locale-aware, roughly case-insensitive). |
+| Missing / null / blank | Always sorted **last**, in both directions — "no value" isn't a magnitude, so flipping `order` to `desc` keeps these at the end, not the top. |
+
+The date handling is a small heuristic for the dates CV/report data carries, not a general date parser — it reads any string starting with four digits as a year. Point `sort_by` at a real date string or a number, not at arbitrary digit-prefixed text (an 8-digit id would be read as the year of its first four digits).
+
+The sort is stable: records with equal keys keep their source order. Since sorting only reorders items, header aggregates like `{COUNT OF publications}` are unaffected by it (unlike `where`, which changes the count).
+
 ## Options reference
 
 | Option | Type | Default | Description |
@@ -98,6 +132,8 @@ Aggregate expressions in the header (like `{COUNT OF publications}`) reflect the
 | `engine` | Loom instance | `new Loom()` | Custom Loom instance (with snippets or custom functions) |
 | `sourceParam` | `string \| null` | `'source'` | Frontmatter field for the data array to iterate. `null` disables. |
 | `whereParam` | `string \| null` | `'where'` | Frontmatter field for a Loom filter expression. `null` disables. |
+| `sortByParam` | `string \| null` | `'sort_by'` | Frontmatter field naming the record property to sort by. `null` disables. |
+| `orderParam` | `string \| null` | `'order'` | Frontmatter field for the sort direction (`asc` / `desc`). `null` disables (always ascending). |
 
 Pass a custom `engine` when you need snippets or custom functions:
 
