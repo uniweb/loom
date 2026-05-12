@@ -397,6 +397,115 @@ describe('createLoomHandlers', () => {
       expect(result.content[3].content[0].text).toBe('C')
     })
 
+    it('keeps missing-field records last even when order: desc', () => {
+      const data = {
+        profile: [{
+          items: [
+            { name: 'B', when: '2010' },
+            { name: 'C' }, // no when
+            { name: 'A', when: '2008' },
+          ],
+        }],
+      }
+      const block = makeBlock(
+        [heading('All'), divider, para('{name}')],
+        { source: 'items', sort_by: 'when', order: 'desc' }
+      )
+      const result = handlers.content(data, block)
+      // descending among values: B (2010), A (2008); missing C still last.
+      expect(result.content[1].content[0].text).toBe('B')
+      expect(result.content[2].content[0].text).toBe('A')
+      expect(result.content[3].content[0].text).toBe('C')
+    })
+
+    it('treats a blank-string field as a missing value', () => {
+      const data = {
+        profile: [{
+          items: [
+            { name: 'blank', when: '   ' },
+            { name: 'has', when: '2009' },
+            { name: 'nullish', when: null },
+          ],
+        }],
+      }
+      const block = makeBlock(
+        [heading('All'), divider, para('{name}')],
+        { source: 'items', sort_by: 'when' }
+      )
+      const result = handlers.content(data, block)
+      // 'has' first; blank + null both treated absent, keep source order.
+      expect(result.content[1].content[0].text).toBe('has')
+      expect(result.content[2].content[0].text).toBe('blank')
+      expect(result.content[3].content[0].text).toBe('nullish')
+    })
+
+    it('interleaves bare-year numbers with YYYY-MM strings chronologically', () => {
+      const data = {
+        profile: [{
+          items: [
+            { name: 'mid-2011', when: '2011-06' },
+            { name: 'year-2012', when: 2012 },     // number, not string
+            { name: 'early-2011', when: '2011-01' },
+            { name: 'year-2010', when: 2010 },
+          ],
+        }],
+      }
+      const block = makeBlock(
+        [heading('All'), divider, para('{name}')],
+        { source: 'items', sort_by: 'when' }
+      )
+      const result = handlers.content(data, block)
+      expect(result.content[1].content[0].text).toBe('year-2010')
+      expect(result.content[2].content[0].text).toBe('early-2011')
+      expect(result.content[3].content[0].text).toBe('mid-2011')
+      expect(result.content[4].content[0].text).toBe('year-2012')
+    })
+
+    it('sorts numeric/date values ahead of plain text on a mixed column', () => {
+      const data = {
+        profile: [{
+          items: [
+            { name: 'text-pending', when: 'pending' },
+            { name: 'date-2015', when: '2015' },
+            { name: 'text-tbd', when: 'TBD' },
+            { name: 'date-2012', when: '2012' },
+          ],
+        }],
+      }
+      const block = makeBlock(
+        [heading('All'), divider, para('{name}')],
+        { source: 'items', sort_by: 'when' }
+      )
+      const result = handlers.content(data, block)
+      // ascending: the two dates first (chronological), then the two plain
+      // strings ordered by localeCompare ('pending' < 'TBD').
+      expect(result.content[1].content[0].text).toBe('date-2012')
+      expect(result.content[2].content[0].text).toBe('date-2015')
+      expect(result.content[3].content[0].text).toBe('text-pending')
+      expect(result.content[4].content[0].text).toBe('text-tbd')
+    })
+
+    it('tolerates non-scalar field values without throwing', () => {
+      const data = {
+        profile: [{
+          items: [
+            { name: 'obj', when: { y: 2020 } },
+            { name: 'bool', when: true },
+            { name: 'str', when: 'zeta' },
+          ],
+        }],
+      }
+      const block = makeBlock(
+        [heading('All'), divider, para('{name}')],
+        { source: 'items', sort_by: 'when' }
+      )
+      expect(() => handlers.content(data, block)).not.toThrow()
+      const result = handlers.content(data, block)
+      // header + 3 items, all rendered (order is by String() form, which
+      // we don't assert beyond "nothing dropped, nothing threw").
+      expect(result.content).toHaveLength(4)
+    })
+
     it('preserves source order when sort_by is absent', () => {
       const block = makeBlock(
         [heading('Pubs'), divider, para('{title}')],
