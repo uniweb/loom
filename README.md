@@ -467,7 +467,7 @@ export default {
 | `engine` | `Loom` instance | `new Loom()` | Custom Loom instance (with snippets or custom functions) |
 | `sourceParam` | `string \| null` | `'source'` | Frontmatter field for the data array to iterate. `null` disables. |
 | `whereParam` | `string \| null` | `'where'` | Frontmatter field for a Loom filter expression. `null` disables. |
-| `sortByParam` | `string \| null` | `'sort_by'` | Frontmatter field naming the record property to sort by. `null` disables. |
+| `sortByParam` | `string \| null` | `'sort_by'` | Frontmatter field naming the record property (or dot-path) to sort by. `null` disables. |
 | `orderParam` | `string \| null` | `'order'` | Frontmatter field for the sort direction (`asc` / `desc`). `null` disables (always ascending). |
 
 **How it works:** The returned `content` handler reads `block.properties[sourceParam]`. Without it, the handler calls `instantiateContent` (simple substitution). With it, the handler calls `instantiateRepeated` (split-iterate-reassemble). When `whereParam` is also set, the source array is filtered first — only items where the expression evaluates to truthy are iterated; then, when `sortByParam` is set, the filtered array is ordered by that record field (`orderParam` picks `asc`/`desc`). The `vars` function extracts the Loom variable namespace from the block's assembled data.
@@ -503,7 +503,7 @@ where: "type = 'book'"
 
 `where` uses Plain-form Loom expressions: `type = 'book'` (equality), `year > 1870` (comparison), `refereed` (truthy check), `type = 'book' AND refereed` (boolean combination). Aggregate expressions in the header reflect the filtered set.
 
-**The `sort_by` convention:** Add `sort_by: fieldName` (and optional `order: asc | desc`, case-insensitive, default `asc`) to order the iterated records. Sorting runs after the `where` filter. Numbers sort numerically; date-shaped strings (`2012`, `2012/9`, `2012-09-30`) sort chronologically and interleave with bare-year numbers; other strings sort with `localeCompare`; records missing the field always sort last, in both directions. The sort is stable. Full details — including the date heuristic's limits — are in [`docs/content-handlers.md`](./docs/content-handlers.md#the-sort-convention).
+**The `sort_by` convention:** Add `sort_by: fieldName` — or a dot-path, `sort_by: period.start` / `sort_by: authors.0.last` — plus optional `order: asc | desc` (case-insensitive, default `asc`) to order the iterated records. The path resolves per record against `{ ...vars, ...record }` (record fields shadow the broader data), the same namespace `where:` uses. Sorting runs after the `where` filter. Numbers sort numerically; date-shaped strings (`2012`, `2012/9`, `2012-09-30`) sort chronologically and interleave with bare-year numbers; other strings sort with `localeCompare`; records missing the path always sort last, in both directions. The sort is stable. Full details — including the date heuristic's limits — are in [`docs/content-handlers.md`](./docs/content-handlers.md#the-sort-convention).
 
 ```markdown
 ---

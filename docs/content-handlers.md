@@ -110,6 +110,8 @@ order: desc
 
 Sorting runs **after** the `where` filter, so a section can filter and order in one declaration. It works on the section-level iteration path (`source:` + `---` dividers); for ad-hoc inline lists, the Plain-form `SORTED BY` modifier covers the same ground.
 
+`sort_by` may be a plain field name or a dot-path — `sort_by: period.start`, `sort_by: authors.0.last`. The path is resolved per record against `{ ...vars, ...record }`, the same namespace `where:` expressions and body `{placeholders}` see, so record fields shadow the broader data (and a record missing the path sorts last, like any other absent value). Sort by a scalar field for a meaningful order; a list-valued path resolves to the whole array, so use an explicit index to sort by one element of it.
+
 How values compare:
 
 | The field holds… | Ordering |
@@ -132,7 +134,7 @@ The sort is stable: records with equal keys keep their source order. Since sorti
 | `engine` | Loom instance | `new Loom()` | Custom Loom instance (with snippets or custom functions) |
 | `sourceParam` | `string \| null` | `'source'` | Frontmatter field for the data array to iterate. `null` disables. |
 | `whereParam` | `string \| null` | `'where'` | Frontmatter field for a Loom filter expression. `null` disables. |
-| `sortByParam` | `string \| null` | `'sort_by'` | Frontmatter field naming the record property to sort by. `null` disables. |
+| `sortByParam` | `string \| null` | `'sort_by'` | Frontmatter field naming the record property (or dot-path) to sort by. `null` disables. |
 | `orderParam` | `string \| null` | `'order'` | Frontmatter field for the sort direction (`asc` / `desc`). `null` disables (always ascending). |
 
 Pass a custom `engine` when you need snippets or custom functions:

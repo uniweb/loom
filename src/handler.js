@@ -31,16 +31,20 @@ import Loom from './engine.js'
  *   `type = 'book' AND refereed`, or a bare truthy check like
  *   `refereed`. Set to `null` to disable.
  * @param {string|null} [options.sortByParam='sort_by'] - Frontmatter
- *   field naming a property on each iterated record to sort by. When
- *   set and present in frontmatter, the (already-filtered) items are
- *   sorted before iteration. The ordering is total and deterministic
- *   whatever the column holds: numbers and date-shaped strings (`2012`,
- *   `2012/9`, `2012-09-30`, …) share one chronological/numeric scale,
- *   so a column mixing bare years and `YYYY-MM` strings interleaves
- *   correctly; other strings compare with `localeCompare`; records
- *   with no value for the field (`null`, `undefined`, or a blank
- *   string) always sort last, in both directions. The sort is stable —
- *   equal keys keep source order. Set to `null` to disable.
+ *   field naming the record property to sort by. May be a dot-path
+ *   (`dates.start`, `authors.0.name`); it is resolved per record against
+ *   `{ ...vars, ...record }` — the same namespace `where:` expressions
+ *   and body `{placeholders}` see, so record fields shadow the broader
+ *   data. When set and present in frontmatter, the (already-filtered)
+ *   items are sorted before iteration. The ordering is total and
+ *   deterministic whatever the column holds: numbers and date-shaped
+ *   strings (`2012`, `2012/9`, `2012-09-30`, …) share one
+ *   chronological/numeric scale, so a column mixing bare years and
+ *   `YYYY-MM` strings interleaves correctly; other strings compare with
+ *   `localeCompare`; records with no value for the path (`null`,
+ *   `undefined`, or a blank string) always sort last, in both
+ *   directions. The sort is stable — equal keys keep source order. Set
+ *   to `null` to disable.
  * @param {string|null} [options.orderParam='order'] - Frontmatter
  *   field for the sort direction. Accepts `asc` (default) or `desc`,
  *   case-insensitive; reverses only the ordering among records that
@@ -104,13 +108,14 @@ export function createLoomHandlers(options = {}) {
           )
         }
 
-        // Sort by field
+        // Sort by field (or dot-path), resolved per record against the
+        // same { ...vars, ...record } namespace `where:` and the body use.
         const sortBy = sortByParam ? block.properties?.[sortByParam] : null
         if (sortBy) {
           const orderRaw = orderParam ? block.properties?.[orderParam] : null
           const descending =
             String(orderRaw ?? '').trim().toLowerCase() === 'desc'
-          items = sortRecordsByField(items, sortBy, descending ? -1 : 1)
+          items = sortRecordsByField(items, sortBy, v, descending ? -1 : 1)
         }
 
         if (whereExpr || sortBy) {
@@ -143,16 +148,21 @@ const TEXT_TIER = 1
 const DATE_SCALE = 10000
 
 /**
- * Return a new array of `records` ordered by each record's `field`.
- * `dir` is 1 for ascending, -1 for descending. The input is not mutated.
- * See the section comment above for the ordering rules.
+ * Return a new array of `records` ordered by each record's `path` (a
+ * field name or Loom dot-path like `dates.start` / `authors.0.name`).
+ * The path is resolved per record against `{ ...vars, ...record }` — the
+ * same namespace `where:` expressions and body `{placeholders}` see, so
+ * record fields shadow the broader data. `dir` is 1 for ascending, -1
+ * for descending. The input is not mutated. See the section comment
+ * above for the ordering rules.
  *
  * @param {Array} records
- * @param {string} field
+ * @param {string} path
+ * @param {object} vars   the shared (per-block) data namespace
  * @param {1 | -1} dir
  * @returns {Array}
  */
-function sortRecordsByField(records, field, dir) {
+function sortRecordsByField(records, path, vars, dir) {
   // Decorate–sort–undecorate: compute each key once, and carry the
   // original index so the result is stable independent of the engine's
   // sort stability.
@@ -160,7 +170,7 @@ function sortRecordsByField(records, field, dir) {
     .map((record, index) => ({
       record,
       index,
-      key: sortKeyForValue(record == null ? undefined : record[field]),
+      key: sortKeyForValue(getProperty(path, { ...vars, ...record })),
     }))
     .sort((a, b) => {
       // Records with no usable value sink to the end, in both
@@ -181,13 +191,16 @@ function sortRecordsByField(records, field, dir) {
 }
 
 /**
- * Reduce a record's field value to a sort token `{ tier, value }`, or
- * `null` when the value is effectively absent (`null`, `undefined`, or
- * a blank string). Numbers and date-shaped strings land in the scalar
- * tier with a numeric `value`; any other string lands in the text tier
- * with the trimmed string as `value`; other types (boolean, object, …)
- * fall back to their string form in the text tier so the order stays
- * deterministic.
+ * Reduce a resolved sort-path value to a sort token `{ tier, value }`,
+ * or `null` when the value is effectively absent (`null`, `undefined`,
+ * or a blank string). Numbers and date-shaped strings land in the
+ * scalar tier with a numeric `value`; any other string lands in the
+ * text tier with the trimmed string as `value`; anything else (boolean,
+ * object, or an array — a list-valued dot-path resolves to one) falls
+ * back to its `String()` form in the text tier so the order stays
+ * deterministic. Point `sort_by` at a scalar field for a meaningful
+ * order; use an explicit index (`authors.0.name`) to sort by one
+ * element of a list-valued path.
  *
  * @param {unknown} value
  * @returns {{ tier: number, value: number | string } | null}

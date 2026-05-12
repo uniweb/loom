@@ -506,6 +506,73 @@ describe('createLoomHandlers', () => {
       expect(result.content).toHaveLength(4)
     })
 
+    it('resolves a dot-path; a record missing the path sorts last', () => {
+      const data = {
+        profile: [{
+          grants: [
+            { title: 'B', period: { start: '2018' } },
+            { title: 'A', period: { start: '2015' } },
+            { title: 'X' }, // no `period` at all
+            { title: 'C', period: { start: '2021' } },
+          ],
+        }],
+      }
+      const block = makeBlock(
+        [heading('Grants'), divider, para('{title}')],
+        { source: 'grants', sort_by: 'period.start' }
+      )
+      const result = handlers.content(data, block)
+      expect(result.content[1].content[0].text).toBe('A') // 2015
+      expect(result.content[2].content[0].text).toBe('B') // 2018
+      expect(result.content[3].content[0].text).toBe('C') // 2021
+      expect(result.content[4].content[0].text).toBe('X') // missing → last
+    })
+
+    it('resolves an indexed dot-path (sort by the first element of a list field)', () => {
+      const data = {
+        profile: [{
+          papers: [
+            { id: 'p1', authors: [{ last: 'Wong' }, { last: 'Abe' }] },
+            { id: 'p2', authors: [{ last: 'Abbott' }, { last: 'Zhao' }] },
+            { id: 'p3', authors: [{ last: 'Khan' }] },
+          ],
+        }],
+      }
+      const block = makeBlock(
+        [heading('Papers'), divider, para('{id}')],
+        { source: 'papers', sort_by: 'authors.0.last' }
+      )
+      const result = handlers.content(data, block)
+      // by first author's surname: Abbott (p2), Khan (p3), Wong (p1)
+      expect(result.content[1].content[0].text).toBe('p2')
+      expect(result.content[2].content[0].text).toBe('p3')
+      expect(result.content[3].content[0].text).toBe('p1')
+    })
+
+    it('resolves the sort path against { ...vars, ...record } — record fields win', () => {
+      // vars carries its own `tier`; each record also has `tier`. The
+      // record's value must drive the order, not the vars-level one
+      // (otherwise every record would share a key and the sort no-ops).
+      const data = {
+        profile: [{
+          tier: 'GLOBAL',
+          awards: [
+            { name: 'gold', tier: 1 },
+            { name: 'bronze', tier: 3 },
+            { name: 'silver', tier: 2 },
+          ],
+        }],
+      }
+      const block = makeBlock(
+        [heading('Awards'), divider, para('{name}')],
+        { source: 'awards', sort_by: 'tier' }
+      )
+      const result = handlers.content(data, block)
+      expect(result.content[1].content[0].text).toBe('gold')   // tier 1
+      expect(result.content[2].content[0].text).toBe('silver') // tier 2
+      expect(result.content[3].content[0].text).toBe('bronze') // tier 3
+    })
+
     it('preserves source order when sort_by is absent', () => {
       const block = makeBlock(
         [heading('Pubs'), divider, para('{title}')],
