@@ -2,9 +2,9 @@
  * End-to-end tests: Plain template string → rendered output.
  *
  * Validates the full pipeline (tokenize → parse → translate → Loom evaluate)
- * for every row of the translation table in kb/plans/plain.md plus the
- * composition examples, plus the two legacy fixtures ported from
- * /Users/dmac/Proximify/unirepo/js/tools/unitTests/tests/plain/.
+ * for every row of the translation table plus the
+ * composition examples, plus two legacy fixtures ported from the
+ * legacy plain test suite.
  */
 
 import { describe, it, expect } from 'vitest'

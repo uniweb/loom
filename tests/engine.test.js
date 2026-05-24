@@ -1,8 +1,7 @@
 /**
  * Core template engine tests.
  *
- * Ported from the legacy markdown-based test suite at
- * /Users/dmac/Proximify/unirepo/js/tools/unitTests/tests/examples/
+ * Ported from the legacy markdown-based test suite.
  *
  * Each test group corresponds to a legacy test file.
  */

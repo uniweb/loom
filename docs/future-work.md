@@ -38,7 +38,7 @@ Write a small `scripts/verify-doc-examples.js` that scans `docs/*.md` for fenced
 
 `docs/ai-prompt.md` is the "paste-into-LLM" prompt. It covers the language but doesn't cover the *task* of generating Loom expressions from natural-language descriptions of report requirements. A second doc that walks through "here's how to prompt an LLM to convert a business requirement into a Loom template" — with a few worked examples — would be useful for the commercial platform's template-authoring UX.
 
-Out of scope for the framework package itself; belongs under `kb/framework/` in the workspace.
+Out of scope for the framework package itself; belongs in the workspace's internal docs.
 
 ### 9. A visible change log
 
