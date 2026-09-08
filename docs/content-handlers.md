@@ -25,6 +25,34 @@ The returned handler reads the `source`, `where`, `sort_by`, and `order` frontma
 - **With `where`**: the source array is filtered before iteration.
 - **With `sort_by`** (and optional `order`): the (filtered) array is ordered by the named field before iteration.
 
+## Site-level placeholders
+
+A Uniweb site can declare values once in `site.yml` and reference them from any page:
+
+```yaml
+# site.yml
+placeholders:
+  product: Uniweb
+  vendor:
+    organization: Acme Studios
+    email: billing@acme.example
+```
+
+```markdown
+Questions? Write to {vendor.email}.
+```
+
+`createLoomHandlers` picks these up automatically — no option to set, nothing to extract. They reach the handler as `block.website.config.placeholders` and join the variable namespace **underneath** whatever your `vars` function returns.
+
+**Precedence: a record field always shadows a site placeholder of the same name.** On a page rendering an article, `{title}` is that article's title even if the site declares a `title` placeholder. The site says what is true of every page; the record says what is true of one. That ordering is what makes a site placeholder safe to use as a default rather than a value you have to name defensively.
+
+Two consequences worth knowing:
+
+- **They resolve even when your `vars` extractor finds nothing.** A page with no record data in scope still renders `{product}`. A site-wide value shouldn't require a record to be present — that's the point of declaring it at the site level.
+- **A site that declares none is unaffected.** With no `placeholders:` block the handler behaves exactly as it did before the key existed, including returning "no change" when `vars` comes back empty.
+
+A non-object declaration (`placeholders: hello`) is ignored rather than merged, so a malformed block can't spread a string into the namespace as `{0: 'h', 1: 'e', …}`.
+
 ## The source convention
 
 Sections declare `source: fieldName` in frontmatter to name the data array to iterate. A `---` divider in the markdown splits the content into regions:

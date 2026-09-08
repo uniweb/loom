@@ -3,6 +3,27 @@ import { getProperty } from './core/functions.js'
 import Loom from './engine.js'
 
 /**
+ * The site's own `placeholders:` block, as it reaches a block at render time.
+ *
+ * ⭐ A site declares values once in `site.yml` and any page may reference them
+ * as ordinary Loom variables (`{vendor.email}`). They are a SOURCE of variables,
+ * not a second syntax — nothing about the template language changes.
+ *
+ * ⛔ Anything that is not a plain object is ignored rather than merged. An
+ * author who writes `placeholders: hello` would otherwise get a string spread
+ * into the namespace as `{0: 'h', 1: 'e', …}` — silent nonsense in the rendered
+ * page instead of a key that simply does not resolve.
+ *
+ * @param {object} block - the Uniweb block the handler was called with
+ * @returns {object|null} the declared placeholders, or null when there are none
+ */
+function sitePlaceholders(block) {
+  const declared = block?.website?.config?.placeholders
+  if (!declared || typeof declared !== 'object' || Array.isArray(declared)) return null
+  return declared
+}
+
+/**
  * Create a handlers object for a Loom-based Uniweb foundation.
  *
  * Returns `{ content }` — a content handler that reads `source`,
@@ -89,8 +110,19 @@ export function createLoomHandlers(options = {}) {
 
   return {
     content: (data, block) => {
-      const v = getVars(data)
-      if (!v) return null
+      // Site-level placeholders (`site.yml::placeholders`) sit UNDERNEATH the
+      // foundation's own vars, so a record field always shadows a site-wide
+      // default of the same name — the site declares what is true of every
+      // page, the record what is true of one.
+      //
+      // ⛔ Absent → this is a no-op in both directions: `v` is exactly what
+      // `getVars` returned, and a foundation whose extractor returns nothing
+      // still returns null (no change), as it did before the key existed. That
+      // is what keeps this invisible to every site that declares none.
+      const placeholders = sitePlaceholders(block)
+      const own = getVars(data)
+      if (!own && !placeholders) return null
+      const v = placeholders ? { ...placeholders, ...(own || {}) } : own
 
       const doc = block.rawContent?.doc ?? block.rawContent
       const source = sourceParam ? block.properties?.[sourceParam] : null

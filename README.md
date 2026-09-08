@@ -472,6 +472,8 @@ export default {
 
 **How it works:** The returned `content` handler reads `block.properties[sourceParam]`. Without it, the handler calls `instantiateContent` (simple substitution). With it, the handler calls `instantiateRepeated` (split-iterate-reassemble). When `whereParam` is also set, the source array is filtered first — only items where the expression evaluates to truthy are iterated; then, when `sortByParam` is set, the filtered array is ordered by that record field (`orderParam` picks `asc`/`desc`). The `vars` function extracts the Loom variable namespace from the block's assembled data.
 
+**Site-level placeholders:** on a Uniweb site, values declared under `placeholders:` in `site.yml` are picked up automatically — no option to set — and join the variable namespace *underneath* whatever `vars` returns, so a record field always shadows a site placeholder of the same name. It is how an author declares a company name or support address once and references it from every page. See [`docs/content-handlers.md`](./docs/content-handlers.md#site-level-placeholders).
+
 **The `source` convention:** Sections declare `source: fieldName` in frontmatter to indicate which data array to iterate. A `---` divider in the markdown separates the header (rendered once) from the body (repeated per item). A second `---` starts a footer (rendered once after all items):
 
 ```markdown

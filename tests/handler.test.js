@@ -678,3 +678,81 @@ describe('createLoomHandlers', () => {
     })
   })
 })
+
+// ── Site-level placeholders ─────────────────────────────────────────
+//
+// `site.yml::placeholders` reaches a block as `block.website.config.placeholders`
+// and joins the Loom variable namespace UNDER the foundation's own vars.
+
+/** A block that also carries the site's declared placeholders. */
+function makeSiteBlock(nodes, placeholders, properties = {}) {
+  return {
+    rawContent: { type: 'doc', content: nodes },
+    properties,
+    website: { config: { placeholders } },
+  }
+}
+
+describe('createLoomHandlers — site-level placeholders', () => {
+  const handlers = createLoomHandlers({ vars: (data) => data?.profile?.[0] })
+
+  it('resolves a site placeholder in page content', () => {
+    const block = makeSiteBlock([para('{vendor.email}')], {
+      vendor: { email: 'billing@acme.example' },
+    })
+    const result = handlers.content({ profile: [{ name: 'Ada' }] }, block)
+    expect(result.content[0].content[0].text).toBe('billing@acme.example')
+  })
+
+  it('lets a record field shadow a site placeholder of the same name', () => {
+    const block = makeSiteBlock([para('{name}')], { name: 'Acme Studios' })
+    const result = handlers.content({ profile: [{ name: 'Ada' }] }, block)
+    expect(result.content[0].content[0].text).toBe('Ada')
+  })
+
+  it('falls back to the site placeholder when the record has no such field', () => {
+    const block = makeSiteBlock([para('{name} — {product}')], { product: 'Uniweb' })
+    const result = handlers.content({ profile: [{ name: 'Ada' }] }, block)
+    expect(result.content[0].content[0].text).toBe('Ada — Uniweb')
+  })
+
+  it('resolves placeholders even when the vars extractor finds nothing', () => {
+    // A site-wide value must not require record data to be in scope — that is
+    // the whole point of declaring it at the site level.
+    const block = makeSiteBlock([para('{product}')], { product: 'Uniweb' })
+    const result = handlers.content({}, block)
+    expect(result.content[0].content[0].text).toBe('Uniweb')
+  })
+
+  it('still returns null when there are neither vars nor placeholders', () => {
+    // The pre-existing no-change contract, unchanged for every site that
+    // declares no `placeholders:` block.
+    const block = makeBlock([para('{name}')])
+    expect(handlers.content({}, block)).toBeNull()
+    expect(handlers.content({ profile: [] }, block)).toBeNull()
+  })
+
+  it('ignores a non-object placeholders declaration', () => {
+    // `placeholders: hello` would otherwise spread a string into the namespace
+    // as { 0: 'h', 1: 'e', … } and render silent nonsense.
+    const block = makeSiteBlock([para('{name}')], 'hello')
+    expect(handlers.content({}, block)).toBeNull()
+
+    const withVars = makeSiteBlock([para('{name}')], ['a', 'b'])
+    const result = handlers.content({ profile: [{ name: 'Ada' }] }, withVars)
+    expect(result.content[0].content[0].text).toBe('Ada')
+  })
+
+  it('feeds the repeat pattern too', () => {
+    const block = makeSiteBlock(
+      [heading('{product} degrees'), divider, para('{degree} — {product}')],
+      { product: 'Uniweb' },
+      { source: 'education' }
+    )
+    const data = { profile: [{ education: [{ degree: 'BA' }, { degree: 'MSc' }] }] }
+    const result = handlers.content(data, block)
+    expect(result.content[0].content[0].text).toBe('Uniweb degrees')
+    expect(result.content[1].content[0].text).toBe('BA — Uniweb')
+    expect(result.content[2].content[0].text).toBe('MSc — Uniweb')
+  })
+})
