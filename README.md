@@ -362,7 +362,7 @@ const engine = new Loom()
 export default {
     handlers: {
         content: (data, block) => {
-            // If the page declares `data: profile`, data.profile is an
+            // If the page declares `query: profile`, data.profile is an
             // array of collection items. The single-profile case flattens
             // to the one item. For multi-source pages, merge everything
             // into one vars object before passing to the walker.
