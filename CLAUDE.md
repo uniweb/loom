@@ -94,7 +94,7 @@ Keyword casing: ALL CAPS is the stable contract; lowercase is SQL-style convenie
 
 - **Public API shape is stable.** `loom.render`, `loom.evaluateText`, constructor signature (`new Loom(snippets?, customFunctions?)`), snippet definition format, and custom function registration (`(flags, ...args) => value`) must not change without a deliberate major-version plan.
 - **Zero runtime dependencies.** Don't introduce any. `vitest` is the only devDependency.
-- **ESM only, Node ≥ 20.19, browser-compatible.** No Node-only APIs in `src/`.
+- **ESM only, Node ≥ 22.12, browser-compatible.** No Node-only APIs in `src/`.
 - **Snippet bodies defined in braces `{ … }`** render as text templates; bodies in parens `( … )` are expression-mode (evaluated directly, useful for reusable data-transformation helpers).
 - **Variables can be a function `(key) => value` or a plain object** — both shapes are supported everywhere; the engine normalizes via `getProperty()`.
 

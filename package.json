@@ -28,7 +28,7 @@
     },
     "homepage": "https://github.com/uniweb/loom#readme",
     "engines": {
-        "node": ">=20.19"
+        "node": ">=22.12"
     },
     "scripts": {
         "test": "vitest run",
