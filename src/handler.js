@@ -72,7 +72,7 @@ function sitePlaceholders(block) {
  *   have a value (missing values stay last either way). Ignored when
  *   `sort_by` is unset. Set to `null` to disable (always ascending
  *   when `sort_by` is present).
- * @returns {{ content: Function }} Handlers object for foundation.js
+ * @returns {{ content: Function }} Handlers object for a foundation's main.js
  *
  * @example
  * // Minimal — most foundations need just this

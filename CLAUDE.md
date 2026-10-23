@@ -16,7 +16,7 @@ Pure JavaScript, **zero runtime dependencies**, works in Node and the browser. P
 ## Commands
 
 ```bash
-pnpm test              # vitest run — full suite (223 tests)
+pnpm test              # vitest run — full suite
 pnpm test:watch        # vitest in watch mode
 pnpm vitest run tests/plain/parser.test.js    # run one file
 pnpm vitest run -t "sorting"                  # run tests matching a name
@@ -125,8 +125,6 @@ See `docs/future-work.md` for the rolling TODO. The remaining rough edges:
 
 - `tests/engine.test.js` — worked examples of each standard-library category via `LoomCore`; the canonical reference for how each function behaves. Uses `run()` / `evaluate()` helpers wired to `LoomCore` directly so the tests exercise Compact form without Plain-translation overhead.
 - `tests/plain/{tokenizer,parser,translator,engine,snippets}.test.js` — the Plain surface layer, split by pipeline stage. `plain/engine.test.js` uses `Loom` (the Plain wrapper) and covers end-to-end templates including `WHERE NOT`, aggregation modifiers, keyword shadowing, and Compact-passthrough fallthrough.
-
-Total: 314 tests across 9 files.
 
 When adding a standard-library function, add a test case in `tests/engine.test.js` under the appropriate category — it doubles as documentation. When adding Plain-form syntax, add parser tests (shape of AST), translator tests (generated Compact expression), and end-to-end engine tests (full render output against realistic data).
 

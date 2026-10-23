@@ -8,7 +8,9 @@ import { getProperty } from './core/functions.js'
  * @param {Object|Array} content - ProseMirror document or content array.
  *   Shape: { type: 'doc', content: [...] } or an array of nodes.
  * @param {Object} engine - A Loom instance (or any engine with a render method).
- * @param {Function} vars - Variable resolver: (key) => value.
+ * @param {Object|Function} vars - The variables, passed to engine.render as
+ *   given. A plain object resolves dot paths into its nested values; a
+ *   `(key) => value` function is called with the whole dotted key.
  * @returns {Object|Array} The content tree with all text nodes instantiated.
  */
 export function instantiateContent(content, engine, vars) {

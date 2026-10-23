@@ -1,6 +1,6 @@
 # Content Handlers
 
-A content handler is a transform layer declared in a Uniweb foundation's `foundation.js` that runs between data assembly and the component. The framework calls it once per block, passing the assembled data and the block object. The handler can return transformed ProseMirror content — resolving Loom `{placeholders}` against live data, repeating sections per data item, filtering and ordering collections — before the framework parses the result and hands it to the component.
+A content handler is a transform layer declared in a Uniweb foundation's `main.js` that runs between data assembly and the component. The framework calls it once per block, passing the assembled data and the block object. The handler can return transformed ProseMirror content — resolving Loom `{placeholders}` against live data, repeating sections per data item, filtering and ordering records — before the framework parses the result and hands it to the component.
 
 ## The quick way: createLoomHandlers
 
@@ -184,9 +184,9 @@ export default {
 
 ## Writing a custom handler
 
-When `createLoomHandlers` doesn't cover your case, use `instantiateContent` and `instantiateRepeated` directly. This gives you full control over data preparation, multiple collections, and conditional logic.
+When `createLoomHandlers` doesn't cover your case, use `instantiateContent` and `instantiateRepeated` directly. This gives you full control over data preparation, several data keys, and conditional logic.
 
-Example — merging data from two collections before instantiation:
+Example — merging two data keys before instantiation:
 
 ```js
 import { Loom, instantiateContent, instantiateRepeated } from '@uniweb/loom'
@@ -221,7 +221,7 @@ Two things to watch for when writing custom handlers:
 
 ## The three handler hooks
 
-The framework supports three handler hooks in `foundation.js`:
+The framework supports three handler hooks in `main.js`:
 
 ```js
 export default {

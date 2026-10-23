@@ -340,21 +340,21 @@ const doc = {
     ],
 }
 
-const resolved = instantiateContent(doc, loom, (key) => profile[key])
+const resolved = instantiateContent(doc, loom, profile)
 ```
 
 `instantiateContent(content, engine, vars)` accepts:
 
 - `content` — a ProseMirror-style document (`{ type: 'doc', content: [...] }`) or a plain array of nodes. Any node without a text field or children passes through unchanged.
 - `engine` — any object with a `render(text, vars)` method. A `Loom` instance is the expected caller, but the duck-typed contract means the walker can be reused by any future template engine.
-- `vars` — a `(key) => value` resolver, same shape `Loom.render()` accepts.
+- `vars` — the variables, in either shape `Loom.render()` accepts: a plain object (recommended — see below) or a `(key) => value` resolver.
 
 The function returns a new tree with every text node's `text` field run through `engine.render()`. The input is not mutated.
 
 The primary consumer is a Uniweb foundation's content handler, which runs at render time with the block's fully assembled data (prerender fetches and runtime entity data merged together). The handler receives `(data, block)`, reads the raw ProseMirror tree from `block.rawContent`, hands it to `instantiateContent` along with the data object that placeholders resolve against, and returns the transformed tree. The framework re-parses the result and passes the instantiated content to the component.
 
 ```js
-// foundation.js
+// src/main.js
 import { Loom, instantiateContent } from '@uniweb/loom'
 
 const engine = new Loom()
@@ -363,7 +363,7 @@ export default {
     handlers: {
         content: (data, block) => {
             // If the page declares `query: profile`, data.profile is an
-            // array of collection items. The single-profile case flattens
+            // array of records. The single-profile case flattens
             // to the one item. For multi-source pages, merge everything
             // into one vars object before passing to the walker.
             const profile = data?.profile?.[0]
@@ -451,7 +451,7 @@ A factory that creates a Uniweb foundation `handlers` object. Encapsulates the c
 ```js
 import { createLoomHandlers } from '@uniweb/loom'
 
-// foundation.js — minimal setup
+// src/main.js — minimal setup
 export default {
   handlers: createLoomHandlers({
     vars: (data) => data?.profile?.[0],
@@ -548,11 +548,11 @@ Full docs live in [`docs/`](./docs/):
 
 ## Status
 
-Stable core API (`render`, `evaluateText`, snippets, custom functions). 254 tests cover the evaluator, both surface forms, snippets, and report-style templates. Used in production since ~2018 for bilingual (English/French) academic CVs and funding reports at Canadian universities — the same template generates both languages from one data source.
+Stable core API (`render`, `evaluateText`, snippets, custom functions). The test suite (`pnpm test`) covers the evaluator, both surface forms, snippets, and report-style templates. Used in production since ~2018 for bilingual (English/French) academic CVs and funding reports at Canadian universities — the same template generates both languages from one data source.
 
 ## See also
 
-- [`@uniweb/press`](https://github.com/uniweb/press) — A React library for generating Word (and soon Excel/PDF) documents. Loom fits naturally with Press when your document content contains dynamic `{placeholders}`: a Uniweb foundation's content handler can call `instantiateContent` (exported from `@uniweb/loom`) to resolve placeholders against live data before Press ever sees the content.
+- [`@uniweb/press`](https://github.com/uniweb/press) — A React library for generating downloadable documents: Word, Excel, typeset PDF (via Typst), LaTeX, Paged.js HTML and EPUB. Loom fits naturally with Press when your document content contains dynamic `{placeholders}`: a Uniweb foundation's content handler can call `instantiateContent` (exported from `@uniweb/loom`) to resolve placeholders against live data before Press ever sees the content.
 
 ## License
 
