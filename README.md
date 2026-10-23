@@ -90,7 +90,7 @@ loom.evaluateText('COUNT OF publications WHERE refereed', profile)
 // → 2    (a number, not a string)
 
 loom.evaluateText('SHOW publications.title SORTED BY year DESCENDING', profile)
-// → ['Hydrology', 'Forestry', 'Cellular Bio']
+// → ['Translator Notes', 'Notes on the Analytical Engine', 'Observations on Mr Babbage']
 ```
 
 The `vars` argument can be a plain object or a `(key) => value` resolver function.
