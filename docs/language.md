@@ -496,13 +496,9 @@ There is a `FOR EACH` construct for rare cases where implicit list-awareness isn
 
 A few rough edges worth knowing about:
 
-1. **`SORTED BY <field>` doesn't consult the named field.** Loom's sort currently ignores the `-by=field` flag and always orders by the first string-like column it finds, so `{SHOW pubs.title SORTED BY year DESCENDING}` returns the titles in reverse alphabetical order regardless of `year`. This is a pre-existing `>>` sort implementation issue, not a Plain-translator issue. Workaround: pre-sort the data in JavaScript before handing it to `render()`, or use Compact form that sorts on the displayed field directly.
+1. **Dotted access on snippet parameters.** If a snippet takes a parameter named `items` and the body references `items.amount`, Loom's aux-variable lookup doesn't traverse dotted paths — it falls through to the outer resolver instead. Workaround: name the snippet parameter to match the outer variable name, or use the Compact accessor form (`(. 'amount' items)`).
 
-2. **Dotted access on snippet parameters.** If a snippet takes a parameter named `items` and the body references `items.amount`, Loom's aux-variable lookup doesn't traverse dotted paths — it falls through to the outer resolver instead. Workaround: name the snippet parameter to match the outer variable name, or use the Compact accessor form (`(. 'amount' items)`).
-
-3. **Grouped boolean expressions in `WHERE`.** Plain's `WHERE` clause doesn't yet parse parenthesized conditions, so `{SHOW pubs.title WHERE NOT (draft OR archived)}` fails at the parser. Apply de Morgan's law instead: `WHERE NOT draft AND NOT archived`. Both forms produce the same filtered list.
-
-4. **Compact-form operators outside a `{…}` passthrough.** A top-level Compact expression that starts with `#`, `~`, `^`, `\`, `<>`, or bare `<` / `>` (e.g. `{# -date=long start_date}`, `{# (~ start_date end_date)}`) is handled by falling through to LoomCore after Plain's parser rejects it. This is transparent in practice — the expression just works — but it means the Plain wrapper has a small per-placeholder parse-and-catch cost on Compact-heavy templates. If that matters for your workload, import `LoomCore` from `@uniweb/loom/core` and skip the Plain parser entirely.
+2. **Compact-form operators outside a `{…}` passthrough.** A top-level Compact expression that starts with `#`, `~`, `^`, `\`, `<>`, or bare `<` / `>` (e.g. `{# -date=long start_date}`, `{# (~ start_date end_date)}`) is handled by falling through to LoomCore after Plain's parser rejects it. This is transparent in practice — the expression just works — but it means the Plain wrapper has a small per-placeholder parse-and-catch cost on Compact-heavy templates. If that matters for your workload, import `LoomCore` from `@uniweb/loom/core` and skip the Plain parser entirely.
 
 ### Translation table
 
