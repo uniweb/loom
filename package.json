@@ -1,6 +1,6 @@
 {
     "name": "@uniweb/loom",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "description": "A small expression language for weaving data into text — variables, functions, filters, sorting, formatting. Polish-notation syntax.",
     "type": "module",
     "exports": {
