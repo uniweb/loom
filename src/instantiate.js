@@ -3,7 +3,7 @@ import { getProperty } from './core/functions.js'
 
 /**
  * Walk a ProseMirror-style content tree and instantiate {placeholders}
- * in text nodes using a template engine.
+ * in its text and in where its links lead, using a template engine.
  *
  * @param {Object|Array} content - ProseMirror document or content array.
  *   Shape: { type: 'doc', content: [...] } or an array of nodes.
@@ -30,8 +30,20 @@ export function instantiateContent(content, engine, vars) {
 }
 
 /**
+ * Where a link or button leads, instantiated. The semantic parser checks the
+ * result like any other link, so a value can't make a link run anything.
+ */
+function instantiateHref(holder, engine, vars) {
+    const href = holder?.attrs?.href
+    if (typeof href !== 'string' || !href.includes('{')) return holder
+    return { ...holder, attrs: { ...holder.attrs, href: engine.render(href, vars) } }
+}
+
+/**
  * Instantiate a single ProseMirror node. Text nodes have their `text`
- * field run through engine.render(). Other nodes recurse into children.
+ * field run through engine.render(), and a link on the text its `href`, so
+ * `[{email}](mailto:{email})` leads where it says. Other nodes recurse into
+ * children.
  */
 function instantiateNode(node, engine, vars) {
     if (!node || typeof node !== 'object') return node
@@ -39,20 +51,21 @@ function instantiateNode(node, engine, vars) {
     const { type, content, text } = node
 
     if (type === 'text' && typeof text === 'string') {
-        return {
-            ...node,
-            text: engine.render(text, vars),
+        const instantiated = { ...node, text: engine.render(text, vars) }
+        if (Array.isArray(node.marks)) {
+            instantiated.marks = node.marks.map((mark) => instantiateHref(mark, engine, vars))
         }
+        return instantiated
     }
 
     if (content && Array.isArray(content)) {
         return {
-            ...node,
+            ...instantiateHref(node, engine, vars),
             content: content.map((child) => instantiateNode(child, engine, vars)),
         }
     }
 
-    return node
+    return instantiateHref(node, engine, vars)
 }
 
 /**

@@ -308,3 +308,39 @@ describe('instantiateRepeated', () => {
         expect(footer.content[0].text).toBe('Total: £800')
     })
 })
+
+describe('where a link leads', () => {
+  const engine = new Loom()
+  const vars = { email: 'c.darwin@royalsociety.org', orcid: '0000-0001', website: 'https://darwin-online.org.uk' }
+  const para = (...content) => ({ type: 'doc', content: [{ type: 'paragraph', content }] })
+  const link = (text, href) => ({ type: 'text', text, marks: [{ type: 'link', attrs: { href, title: null } }] })
+
+  it('fills a placeholder in a link, as in its label', () => {
+    const out = instantiateContent(para(link('{email}', 'mailto:{email}'), link('{website}', '{website}')), engine, vars)
+    const [first, second] = out.content[0].content
+    expect(first.text).toBe('c.darwin@royalsociety.org')
+    expect(first.marks[0].attrs).toEqual({ href: 'mailto:c.darwin@royalsociety.org', title: null })
+    expect(second.marks[0].attrs.href).toBe('https://darwin-online.org.uk')
+  })
+
+  it('fills one inside a longer address, and keeps the mark\'s other attributes and other marks', () => {
+    const node = { type: 'text', text: 'ORCID', marks: [{ type: 'bold' }, { type: 'link', attrs: { href: 'https://orcid.org/{orcid}', target: '_blank' } }] }
+    const [out] = instantiateContent(para(node), engine, vars).content[0].content
+    expect(out.marks).toEqual([{ type: 'bold' }, { type: 'link', attrs: { href: 'https://orcid.org/0000-0001', target: '_blank' } }])
+  })
+
+  it('fills a button\'s address', () => {
+    const button = { type: 'button', attrs: { href: '{website}/join' }, content: [{ type: 'text', text: 'Join' }] }
+    const out = instantiateContent(para(button), engine, vars)
+    expect(out.content[0].content[0].attrs.href).toBe('https://darwin-online.org.uk/join')
+  })
+
+  it('leaves an address with no placeholder as the same object, and doesn\'t touch the document it was given', () => {
+    const mark = { type: 'link', attrs: { href: 'https://example.org' } }
+    const doc = para({ type: 'text', text: 'x', marks: [mark] }, link('{email}', 'mailto:{email}'))
+    const before = JSON.stringify(doc)
+    const out = instantiateContent(doc, engine, vars)
+    expect(out.content[0].content[0].marks[0]).toBe(mark)
+    expect(JSON.stringify(doc)).toBe(before)
+  })
+})
